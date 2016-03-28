@@ -1,0 +1,14 @@
+/Debug
+/Release
+/x64
+*/Debug
+*/Release
+*/x64
+/ipch
+*.log
+*.sdf
+*.suo
+*.hmi
+/data
+
+/proj/*.exe
