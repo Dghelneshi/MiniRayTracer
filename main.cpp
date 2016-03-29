@@ -18,7 +18,7 @@ static int32 G_windowWidth = 600;
 static int32 G_windowHeight = 400;
 static int32 G_bufferWidth = G_windowWidth;
 static int32 G_bufferHeight = G_windowHeight;
-static int32 G_samplesPerPixel = 16; // TODO: will be reduced to the next smallest square number until I implement a more robust sample distribution
+static int32 G_samplesPerPixel = 64; // TODO: will be reduced to the next smallest square number until I implement a more robust sample distribution
 static int32 G_maxBounces = 16;
 static int32 G_numThreads = 0; // 0 == automatic
 static int32 G_packetSize = 64;
@@ -219,7 +219,7 @@ scene_object *random_scene(int n, pcg32_random_t *rng) {
     
     list[0] = new sphere(vec3(0, -1000, 0), 1000, new lambertian(vec3(0.5, 0.5, 0.5)));
 
-    int half_sqrt_n = int(sqrtf(float(n)) * 0.5f);
+    int half_sqrt_n = sqrtf(float(n)) * 0.5f;
     int i = 1;
     for (int a = -half_sqrt_n; a < half_sqrt_n; a++) {
 
@@ -323,8 +323,10 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     float aspect = G_bufferWidth / (float) G_bufferHeight;
     float aperture = 0.09f;
     float focus_dist = (cam_pos - lookat).length();
+    float shutter_t0 = 0.0f;
+    float shutter_t1 = 1.0f;
 
-    camera *camera = new class camera(cam_pos, lookat, up, vfov, aspect, aperture, focus_dist);
+    camera *camera = new class camera(cam_pos, lookat, up, vfov, aspect, aperture, focus_dist, shutter_t0, shutter_t1);
 
     // setup scene
     
@@ -360,6 +362,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         }
     }
     
+
     if (G_numThreads == 0) {
         // ALL YOUR PROCESSOR ARE BELONG TO US!
         SYSTEM_INFO sysInfo;
