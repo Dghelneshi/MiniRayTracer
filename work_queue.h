@@ -14,7 +14,7 @@ class work_queue {
 public:
     work *worklist;
     int32 workCount;
-    LONG workAllocated = 0;
+    volatile LONG workAllocated = 0;
 
     work_queue(int32 bufferWidth, int32 bufferHeight, int32 packetSize) {
 

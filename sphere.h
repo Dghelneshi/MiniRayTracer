@@ -14,7 +14,7 @@ public:
 
     sphere() {}
     sphere(vec3 center0, float r, material *mat, vec3 center1 = { 0, 0, 0 }, float t0 = 0.0f, float t1 = 0.0f) : 
-        center0(center0), radius(r), mat_ptr(mat), center1(center1), time0(t0), time1(t1) {
+        center0(center0), center1(center1), time0(t0), time1(t1), radius(r), mat_ptr(mat) {
         
         isMoving = (time1 - time0) > FLT_EPSILON;
     };
@@ -29,6 +29,7 @@ public:
     }
 
     virtual bool hit(const ray& r, float tmin, float tmax, hit_record *rec) const;
+    virtual bool bounding_box(aabb *box, float t0, float t1) const;
 };
 
 bool sphere::hit(const ray& r, float tmin, float tmax, hit_record *rec) const {
@@ -60,6 +61,19 @@ bool sphere::hit(const ray& r, float tmin, float tmax, hit_record *rec) const {
         }
     }
     return false;
+}
+
+bool sphere::bounding_box(aabb* box, float t0, float t1) const {
+
+    vec3 r(radius, radius, radius);
+    vec3 c0 = center(t0);
+    vec3 c1 = center(t1);
+
+    aabb bb0(c0 - r, c0 + r);
+    aabb bb1(c1 - r, c1 + r);
+
+    *box = surrounding_box(bb0, bb1);
+    return true;
 }
 
 

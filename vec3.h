@@ -39,7 +39,7 @@ public:
     inline float length() const;
     inline float sdot() const;
     inline vec3 normalize();
-    inline vec3 gamma_correct(); // for colors
+    inline vec3 gamma_correct();
     inline vec3 reflect(const vec3& n);
 
 };
@@ -79,21 +79,24 @@ inline vec3& operator/=(vec3 &v1, const float f) {
     return v1;
 }
 
+// element wise mul and div, mostly for colors
 
-inline vec3 operator*(const vec3& v1, const vec3& v2) { // for colors
+inline vec3 operator*(const vec3& v1, const vec3& v2) {
     return vec3(v1.r * v2.r, v1.g * v2.g, v1.b * v2.b);
 }
-inline vec3 operator/(const vec3& v1, const vec3& v2) { // for colors
+inline vec3 operator/(const vec3& v1, const vec3& v2) {
     return vec3(v1.r / v2.r, v1.g / v2.g, v1.b / v2.b);
 }
-inline vec3& operator*=(vec3 &v1, const vec3& v2) { // for colors
+inline vec3& operator*=(vec3 &v1, const vec3& v2) {
     v1 = v1 * v2;
     return v1;
 }
-inline vec3& operator/=(vec3 &v1, const vec3& v2) { // for colors
+inline vec3& operator/=(vec3 &v1, const vec3& v2) {
     v1 = v1 / v2;
     return v1;
 }
+
+////
 
 inline float dot(const vec3& v1, const vec3& v2) {
     return v1.x * v2.x + v1.y * v2.y + v1.z * v2.z;

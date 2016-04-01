@@ -18,15 +18,14 @@ static int32 G_windowWidth = 600;
 static int32 G_windowHeight = 400;
 static int32 G_bufferWidth = G_windowWidth;
 static int32 G_bufferHeight = G_windowHeight;
-static int32 G_samplesPerPixel = 64; // TODO: will be reduced to the next smallest square number until I implement a more robust sample distribution
+static int32 G_samplesPerPixel = 16; // TODO: will be reduced to the next smallest square number until I implement a more robust sample distribution
 static int32 G_maxBounces = 16;
 static int32 G_numThreads = 0; // 0 == automatic
 static int32 G_packetSize = 64;
 static int32 G_updateFreq = 60;
 static bool G_isRunning = true;
-static bool G_isDone = false;
+static volatile LONG G_numTracesDone = 0;
 static uint32* G_backBuffer;
-
 
 ////////////////////////////
 //       RAY TRACER       //
@@ -114,7 +113,7 @@ unsigned int __stdcall draw(void * argp) {
         }
     }
 
-    G_isDone = true;
+    InterlockedIncrement(&G_numTracesDone);
     return 0;
 }
 
@@ -213,13 +212,13 @@ LRESULT CALLBACK MainWndProc(HWND hWindow, UINT uMsg, WPARAM wParam, LPARAM lPar
     return result;
 }
 
-scene_object *random_scene(int n, pcg32_random_t *rng) {
-    
+scene_object *random_scene(int n, float camera_t0, float camera_t1, pcg32_random_t *rng) {
+
     scene_object **list = new scene_object*[n + 6];
     
     list[0] = new sphere(vec3(0, -1000, 0), 1000, new lambertian(vec3(0.5, 0.5, 0.5)));
 
-    int half_sqrt_n = sqrtf(float(n)) * 0.5f;
+    int half_sqrt_n = int(sqrtf(float(n)) * 0.5f);
     int i = 1;
     for (int a = -half_sqrt_n; a < half_sqrt_n; a++) {
 
@@ -231,18 +230,22 @@ scene_object *random_scene(int n, pcg32_random_t *rng) {
             if ((center - vec3(4, 0.2f, 0)).length() > 0.9f) {
 
                 material *mat;
+                sphere *sphere;
 
                 if (choose_mat < 0.5f) {
                     mat = new lambertian(vec3(randf(rng)*randf(rng), randf(rng)*randf(rng), randf(rng)*randf(rng)));
+                    sphere = new class sphere(center, 0.2f, mat, center + vec3{ 0, 0.5f*randf(rng), 0 }, 0.0f, 1.0f);
                 }
                 else if (choose_mat < 0.9f) {
                     mat = new metal(0.5f * vec3(1 + randf(rng), 1 + randf(rng), 1 + randf(rng)), randf(rng));
+                    sphere = new class sphere(center, 0.2f, mat);
                 }
                 else {
                     mat = new dielectric(1.4f + randf(rng));
+                    sphere = new class sphere(center, 0.2f, mat);
                 }
 
-                list[i++] = new sphere(center, 0.2f, mat);
+                list[i++] = sphere;
             }
         }
     }
@@ -253,7 +256,14 @@ scene_object *random_scene(int n, pcg32_random_t *rng) {
     list[i++] = new sphere(vec3(4, 1, 3),   1.0f, new dielectric(2.4f));
     list[i++] = new sphere(vec3(4, 1, 3), -0.95f, new dielectric(2.4f));
 
-    return new object_list(list, i);
+    // 600x400x16 clang++
+    // n:        500 |  1000 | 10000 | 100000
+    // list:   16.59 | 32.23 | too damn long
+    // bvh:     2.54 |  2.83 |  3.87 |   6.56 (+0.35 precalc)
+    // bvh re:  
+
+    //return new object_list(list, i, camera_t0, camera_t1);
+    return new bvh_node(list, i, camera_t0, camera_t1, rng);
 }
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {
@@ -329,21 +339,27 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     camera *camera = new class camera(cam_pos, lookat, up, vfov, aspect, aperture, focus_dist, shutter_t0, shutter_t1);
 
     // setup scene
+    SetWindowTextA(mainWindow, "Generating Scene...");
     
-    //scene_object *list[5];
-    //list[0] = new sphere(vec3(0, 0, -1), 0.5f, new lambertian(vec3(0.1f, 0.2f, 0.5f)));
-    //list[1] = new sphere(vec3(0, -100.5, -1), 100, new lambertian(vec3(0.8f, 0.8f, 0.0)));
-    //list[2] = new sphere(vec3(1, 0, -1), 0.5f, new metal(vec3(0.8f, 0.6f, 0.2f), 0.5f));
-    //list[3] = new sphere(vec3(-1, 0, -1), 0.499f, new dielectric(1.5f));
-    //list[4] = new sphere(vec3(-1, 0, -1), -0.45f, new dielectric(1.5f));
-
-    //scene_object *scene = new object_list(list, sizeof(list) / sizeof(*list));
+    // start timer for scene generation
+    LARGE_INTEGER freq;
+    QueryPerformanceFrequency(&freq);
+    LARGE_INTEGER t1_gen;
+    QueryPerformanceCounter(&t1_gen);
 
     pcg32_random_t rng = {};
     pcg32_srandom_r(&rng, 0xabcd571f2851b2a5ULL, 0xabc0fe8761cbafe9ULL);
 
-    scene_object *scene = random_scene(500, &rng);
+    scene_object *scene = random_scene(500, shutter_t0, shutter_t1, &rng);
     
+    // stop timer, display in window title
+    LARGE_INTEGER t2_gen;
+    QueryPerformanceCounter(&t2_gen);
+
+    char windowTitle[64];
+    sprintf_s(windowTitle, 64, "MiniRayTracer - Scene Gen: %.4fs", float(t2_gen.QuadPart - t1_gen.QuadPart) / freq.QuadPart);
+    SetWindowTextA(mainWindow, windowTitle);
+
     // setup sample distribution
     int32 sqrt_samples = (int32) sqrt((float) G_samplesPerPixel); // TODO: distribution for non-square numbers
     int32 numSamples = sqrt_samples * sqrt_samples;
@@ -362,6 +378,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         }
     }
     
+    // multi-threading stuff
 
     if (G_numThreads == 0) {
         // ALL YOUR PROCESSOR ARE BELONG TO US!
@@ -389,11 +406,11 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         threadArgs[i].numSamples = numSamples;
     }
 
-    // start time
-    LARGE_INTEGER freq;
-    QueryPerformanceFrequency(&freq);
-    LARGE_INTEGER t1;
-    QueryPerformanceCounter(&t1);
+    InterlockedAnd(&G_numTracesDone, 0);
+
+    // start time for ray tracer
+    LARGE_INTEGER t1_trace;
+    QueryPerformanceCounter(&t1_trace);
 
     // start worker threads
     HANDLE *threads = (HANDLE*) calloc(G_numThreads, sizeof(*threads));
@@ -412,19 +429,19 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         }
 
         Sleep(1000 / G_updateFreq);
-
-        if (G_isDone) { // TODO: currently just updates every time a thread is done, could use semaphore or simple atomic counter instead
-            
-            LARGE_INTEGER t2;
-            QueryPerformanceCounter(&t2);
-
+        
+        if (G_numTracesDone < G_numThreads) {
+        
             // display elapsed time in window title
-            char frameInfo[64];
-            sprintf_s(frameInfo, 64, "MiniRayTracer - %.2fs", float(t2.QuadPart - t1.QuadPart) / freq.QuadPart);
-            SetWindowTextA(mainWindow, frameInfo);
+            LARGE_INTEGER t2_trace;
+            QueryPerformanceCounter(&t2_trace);
 
-            G_isDone = false;
-            G_updateFreq = 60;
+            char frameInfo[128];
+            sprintf_s(frameInfo, 128, "%s - Trace: %.2fs", windowTitle, float(t2_trace.QuadPart - t1_trace.QuadPart) / freq.QuadPart);
+            SetWindowTextA(mainWindow, frameInfo);
+        }
+        else {
+            G_updateFreq = 30;
         }
 
         // draw current backbuffer to window

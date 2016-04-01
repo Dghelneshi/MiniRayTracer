@@ -13,5 +13,6 @@
     <ClInclude Include="..\work_queue.h" />
     <ClInclude Include="..\common.h" />
     <ClInclude Include="..\material.h" />
+    <ClInclude Include="..\aabb.h" />
   </ItemGroup>
 </Project>
