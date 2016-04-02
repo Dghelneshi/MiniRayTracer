@@ -41,6 +41,7 @@ public:
     virtual bool bounding_box(aabb* b, float t0, float t1) const {
 
         if (box._min.x > box._max.x) { // list contains objects with no valid bbox
+            DebugBreak();
             return false;
         }
         else {
@@ -95,11 +96,12 @@ object_list::object_list(scene_object* l[], int n, float time0, float time1) {
             }
         }
         else {
+            DebugBreak();
             box = aabb(minbb, maxbb);
             return;
         }
     }
-    
+
     box = aabb(minbb, maxbb);
 }
 
@@ -114,7 +116,8 @@ public:
     aabb box;
     
     bvh_node() {}
-    bvh_node(scene_object* list[], int n, float time0, float time1, pcg32_random_t *rng);
+    bvh_node(scene_object* list[], int n, float time0, float time1);
+
     virtual bool bounding_box(aabb* b, float t0, float t1) const {
         *b = box;
         return true;
@@ -168,7 +171,7 @@ int box_compare_x(const void *a, const void *b) {
         DebugBreak();
     }
 
-    if (box_left._min.x - box_right._min.x == 0.0f) { // 0/equal case must exist, can otherwise cause infinite loop on msvc!
+    if (box_left._min.x - box_right._min.x == 0.0f) { // 0 / equal case must exist, can otherwise cause infinite loop on msvc!
         return 0;
     }
     else if (box_left._min.x - box_right._min.x < 0.0f) {
@@ -241,10 +244,23 @@ inline cmp_fn box_compare(int axis) {
     }
 }
 
-bvh_node::bvh_node(scene_object* list[], int n, float time0, float time1, pcg32_random_t *rng) {
+bvh_node::bvh_node(scene_object* list[], int n, float time0, float time1) {
 
-    int axis = int(3 * randf(rng));
+    // create temporary list object to get bounding box of all objects (lazy coder at work!)
+    object_list ol(list, n, time0, time1);
+    ol.bounding_box(&box, time0, time1);
 
+    // choose split axis by picking largest extents on bb
+    int axis = 0;
+    vec3 dim = box._max - box._min;
+    float max_dim = 0.0f;
+    for (int i = 0; i < 3; i++) {
+        if (dim[i] > max_dim) {
+            max_dim = dim[i];
+            axis = i;
+        }
+    }
+    
     qsort(list, n, sizeof(scene_object*), box_compare(axis));
 
     if (n == 1) {
@@ -254,16 +270,20 @@ bvh_node::bvh_node(scene_object* list[], int n, float time0, float time1, pcg32_
         left = list[0];
         right = list[1];
     }
+    else if (n < 11) {
+        left = new object_list(list, n / 2, time0, time1);
+        right = new object_list(list + (n / 2), n - (n / 2), time0, time1);
+    }
     else {
-        left = new bvh_node(list, n / 2, time0, time1, rng);
-        right = new bvh_node(list + (n / 2), n - (n / 2), time0, time1, rng);
+        left = new bvh_node(list, n / 2, time0, time1);
+        right = new bvh_node(list + (n / 2), n - (n / 2), time0, time1);
     }
 
-    aabb box_left, box_right;
-    if (!(left->bounding_box(&box_left, time0, time1) && right->bounding_box(&box_right, time0, time1))) {
-        OutputDebugStringA("no bounding box in bvh_node constructor\n");
-        DebugBreak();
-    }
+    //aabb box_left, box_right;
+    //if (!(left->bounding_box(&box_left, time0, time1) && right->bounding_box(&box_right, time0, time1))) {
+    //    OutputDebugStringA("no bounding box in bvh_node constructor\n");
+    //    DebugBreak();
+    //}
 
-    box = surrounding_box(box_left, box_right);
+    //box = surrounding_box(box_left, box_right);
 }

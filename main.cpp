@@ -18,10 +18,10 @@ static int32 G_windowWidth = 600;
 static int32 G_windowHeight = 400;
 static int32 G_bufferWidth = G_windowWidth;
 static int32 G_bufferHeight = G_windowHeight;
-static int32 G_samplesPerPixel = 16; // TODO: will be reduced to the next smallest square number until I implement a more robust sample distribution
+static int32 G_samplesPerPixel = 64; // TODO: will be reduced to the next smallest square number until I implement a more robust sample distribution
 static int32 G_maxBounces = 16;
 static int32 G_numThreads = 0; // 0 == automatic
-static int32 G_packetSize = 64;
+static int32 G_packetSize = 32;
 static int32 G_updateFreq = 60;
 static bool G_isRunning = true;
 static volatile LONG G_numTracesDone = 0;
@@ -256,14 +256,14 @@ scene_object *random_scene(int n, float camera_t0, float camera_t1, pcg32_random
     list[i++] = new sphere(vec3(4, 1, 3),   1.0f, new dielectric(2.4f));
     list[i++] = new sphere(vec3(4, 1, 3), -0.95f, new dielectric(2.4f));
 
-    // 600x400x16 clang++
-    // n:        500 |  1000 | 10000 | 100000
-    // list:   16.59 | 32.23 | too damn long
-    // bvh:     2.54 |  2.83 |  3.87 |   6.56 (+0.35 precalc)
-    // bvh re:  
+    // 600x400x16 clang++, 1 thread, 32x32 packets
+    // n:        500 |   1000 | 10000 | 100000         | 1,000,000        
+    // list:   62.57 | 137.38 | -- too long ----------------------
+    // bvh:    12.45 |  14.14 | 19.04 |  30.79 (+0.35) | 50.32 (+3.45)
+    // bvh re:  8.55 |  10.12 | 13.91 |  18.66 (+0.40) | 23.24 (+5.89)
 
     //return new object_list(list, i, camera_t0, camera_t1);
-    return new bvh_node(list, i, camera_t0, camera_t1, rng);
+    return new bvh_node(list, i, camera_t0, camera_t1);
 }
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {
@@ -314,6 +314,11 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     HWND mainWindow = CreateWindowEx(windowStyleEx, windowClass.lpszClassName, "MiniRayTracer", windowStyle, 0, 0,
                                      (r.right - r.left), (r.bottom - r.top), NULL, NULL, hInstance, 0);
 
+    // set stretch mode in case buffer size != window size
+    HDC DC = GetDC(mainWindow);      // stretch mode is reset if we release the DC, so we just don't...
+    SetStretchBltMode(DC, HALFTONE); // bicubic-like, blurry. comment out if undesired
+    SetBrushOrgEx(DC, 0, 0, NULL);   // required after setting HALFTONE according to MSDN
+
     // tells Windows how to interpret our backbuffer
     BITMAPINFO bmpInfo;
     bmpInfo.bmiHeader.biSize = sizeof(bmpInfo.bmiHeader);
@@ -339,7 +344,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     camera *camera = new class camera(cam_pos, lookat, up, vfov, aspect, aperture, focus_dist, shutter_t0, shutter_t1);
 
     // setup scene
-    SetWindowTextA(mainWindow, "Generating Scene...");
+    SetWindowTextA(mainWindow, "MiniRayTracer - Generating Scene...");
     
     // start timer for scene generation
     LARGE_INTEGER freq;
@@ -357,7 +362,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     QueryPerformanceCounter(&t2_gen);
 
     char windowTitle[64];
-    sprintf_s(windowTitle, 64, "MiniRayTracer - Scene Gen: %.4fs", float(t2_gen.QuadPart - t1_gen.QuadPart) / freq.QuadPart);
+    sprintf_s(windowTitle, 64, "MiniRayTracer - Scene Gen: %.3fs", float(t2_gen.QuadPart - t1_gen.QuadPart) / freq.QuadPart);
     SetWindowTextA(mainWindow, windowTitle);
 
     // setup sample distribution
@@ -419,6 +424,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         threads[i] = (HANDLE) _beginthreadex(NULL, 0, &draw, &threadArgs[i], 0, NULL);
     }
 
+
+
     // main loop, draws current picture in window
     while (G_isRunning) {
 
@@ -444,11 +451,12 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
             G_updateFreq = 30;
         }
 
+
         // draw current backbuffer to window
-        HDC DC = GetDC(mainWindow);
         StretchDIBits(DC, 0, 0, G_windowWidth, G_windowHeight, 0, 0, G_bufferWidth, G_bufferHeight, G_backBuffer, &bmpInfo, DIB_RGB_COLORS, SRCCOPY);
-        ReleaseDC(mainWindow, DC);
     }
+
+    ReleaseDC(mainWindow, DC);
 
     // wait for threads to finish, but terminate forcefully if too slow
     DWORD waitResult = WaitForMultipleObjects(G_numThreads, threads, TRUE, 500);
