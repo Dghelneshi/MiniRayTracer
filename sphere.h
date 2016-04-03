@@ -2,6 +2,7 @@
 
 #include "scene_object.h"
 #include "material.h"
+#include "math.h" // atan, asin
 
 class sphere : public scene_object {
 public:
@@ -32,6 +33,14 @@ public:
     virtual bool bounding_box(aabb *box, float t0, float t1) const;
 };
 
+// gets uv for point on unit sphere (i.e. pass in normal for p)
+void get_sphere_uv(const vec3& p, float *u, float *v) {
+    float phi = atan2(p.z, p.x);
+    float theta = asin(p.y);
+    *u = 1 - (phi + M_PI_F) / (2 * M_PI_F);
+    *v = (theta + M_PI_F * 0.5f) / M_PI_F;
+}
+
 bool sphere::hit(const ray& r, float tmin, float tmax, hit_record *rec) const {
 
     rec->mat_ptr = mat_ptr;
@@ -49,6 +58,7 @@ bool sphere::hit(const ray& r, float tmin, float tmax, hit_record *rec) const {
             rec->t = t;
             rec->p = r.eval(t);
             rec->n = (rec->p - cen) / radius;
+            get_sphere_uv(rec->n, &rec->u, &rec->v);
             return true;
         }
         // back
@@ -57,6 +67,7 @@ bool sphere::hit(const ray& r, float tmin, float tmax, hit_record *rec) const {
             rec->t = t;
             rec->p = r.eval(t);
             rec->n = (rec->p - cen) / radius;
+            get_sphere_uv(rec->n, &rec->u, &rec->v);
             return true;
         }
     }
@@ -77,5 +88,4 @@ bool sphere::bounding_box(aabb* box, float t0, float t1) const {
     *box = surrounding_box(bb0, bb1);
     return true;
 }
-
 

@@ -2,13 +2,6 @@
 
 #include "ray.h"
 #include "pcg.h"
-#define _USE_MATH_DEFINES
-#include "math.h" // M_PI
-
-// for clang
-#ifndef M_PI
-#define M_PI 3.14159265358979323846
-#endif
 
 class camera {
 public:
@@ -25,7 +18,7 @@ public:
         time0 = shutter_t0;
         time1 = shutter_t1;
 
-        float theta = vfov * float(M_PI) / 180.0f;
+        float theta = vfov * float(M_PI_F) / 180.0f;
         float height = 2.0f * tan(theta / 2);
         float width = aspect * height;
 

@@ -22,7 +22,7 @@ public:
     virtual bool scatter(const ray& r_in, const hit_record& rec, vec3 *attenuation, pcg32_random_t* rng, ray *scattered) const {
         vec3 target = rec.p + rec.n + random_in_sphere(rng);
         *scattered = ray(rec.p, target - rec.p);
-        *attenuation = albedo->sample(0, 0, rec.p);
+        *attenuation = albedo->sample(rec.u, rec.v, rec.p);
         return true;
     }
 };

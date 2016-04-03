@@ -13,12 +13,14 @@
 #include "sphere.h"
 #include "camera.h"
 #include "work_queue.h"
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
 
 static int32 G_windowWidth = 600;
 static int32 G_windowHeight = 400;
 static int32 G_bufferWidth = G_windowWidth;
 static int32 G_bufferHeight = G_windowHeight;
-static int32 G_samplesPerPixel = 256; // TODO: will be reduced to the next smallest square number until I implement a more robust sample distribution
+static int32 G_samplesPerPixel = 64; // TODO: will be reduced to the next smallest square number until I implement a more robust sample distribution
 static int32 G_maxBounces = 16;
 static int32 G_numThreads = 0; // 0 == automatic
 static int32 G_packetSize = 32;
@@ -26,6 +28,7 @@ static int32 G_updateFreq = 60;
 static bool G_isRunning = true;
 static volatile LONG G_numTracesDone = 0;
 static uint32* G_backBuffer;
+
 
 ////////////////////////////
 //       RAY TRACER       //
@@ -250,6 +253,71 @@ scene_object *random_scene(int n, float camera_t0, float camera_t1) {
     return new bvh_node(list, i, camera_t0, camera_t1);
 }
 
+scene_object *random_scene_2(int n, float camera_t0, float camera_t1) {
+
+    scene_object **list = new scene_object*[n + 6];
+
+    int width, height, channels;
+    uint8 *pixels = stbi_load("../earthmap.jpg", &width, &height, &channels, 3);
+    if (!pixels) DebugBreak();
+
+    material *earth = new lambertian(new image_tex(pixels, width, height));
+    material *checker = new lambertian(new checker_tex(new uni_color_tex(vec3(0.2f, 0.3f, 0.1f)), new uni_color_tex(vec3(0.9f, 0.9f, 0.9f))));
+    material *perlin = new lambertian(new perlin_tex(1.0f));
+    material *perlin_small = new lambertian(new perlin_tex(4.0f));
+
+    list[0] = new sphere(vec3(0, -1000, 0), 1000, perlin);
+
+    int half_sqrt_n = int(sqrtf(float(n)) * 0.5f);
+    int i = 1;
+    for (int a = -half_sqrt_n; a < half_sqrt_n; a++) {
+
+        for (int b = -half_sqrt_n; b < half_sqrt_n; b++) {
+
+            float choose_mat = randf();
+            vec3 center(a + 0.9f * randf(), 0.2f, b + 0.9f * randf());
+
+            if ((center - vec3(4, 0.2f, 0)).length() > 0.9f) {
+
+                material *mat;
+                sphere *sphere;
+
+                if (choose_mat < 0.3f) {
+                    mat = new lambertian(new uni_color_tex(vec3(randf()*randf(), randf()*randf(), randf()*randf())));
+                    sphere = new class sphere(center, 0.2f, mat, center + vec3{ 0, 0.5f*randf(), 0 }, 0.0f, 1.0f);
+                }
+                else {
+                    if (choose_mat < 0.6f) {
+                        mat = new metal(0.5f * vec3(1 + randf(), 1 + randf(), 1 + randf()), randf());
+                    }
+                    else if (choose_mat < 0.7f) {
+                        mat = new dielectric(1.4f + randf());
+                    }
+                    else if (choose_mat < 0.75f) {
+                        mat = earth;
+                    }
+                    else {
+                        mat = perlin_small;
+                    }
+                    sphere = new class sphere(center, 0.2f, mat);
+                }
+
+                list[i++] = sphere;
+            }
+        }
+    }
+
+
+    list[i++] = new sphere(vec3(0, 1, 0), 1.0f, new dielectric(1.5f));
+    list[i++] = new sphere(vec3(-4, 1, 0), 1.0f, checker);
+    list[i++] = new sphere(vec3(4, 1, 0), 1.0f, new metal(vec3(0.7f, 0.6f, 0.5f), 1.0f));
+    list[i++] = new sphere(vec3(4, 1, 3), 1.0f, new dielectric(2.4f));
+    list[i++] = new sphere(vec3(4, 1, 3), -0.95f, new dielectric(2.4f));
+
+    return new bvh_node(list, i, camera_t0, camera_t1);
+}
+
+
 scene_object *two_spheres(float camera_t0, float camera_t1) {
     texture *checker = new checker_tex(new uni_color_tex(vec3(0.2f, 0.3f, 0.1f)), new uni_color_tex(vec3(0.9f, 0.9f, 0.9f)));
 
@@ -263,9 +331,25 @@ scene_object *two_spheres(float camera_t0, float camera_t1) {
 scene_object *spheres_perlin(float camera_t0, float camera_t1) {
 
     scene_object **list = new scene_object*[3];
-    list[0] = new sphere(vec3(0, -1000, 0), 1000, new lambertian(new perlin_tex(1.0f)));
-    list[1] = new sphere(vec3(0, 2, 0), 2, new lambertian(new perlin_tex(4.0f)));
-    list[2] = new sphere(vec3(0.5f, 0.5f, 2), 0.5f, new lambertian(new perlin_tex(16.0f)));
+    list[0] = new sphere(vec3(0, -1001, 0), 1000, new lambertian(new perlin_tex(1.0f)));
+    list[1] = new sphere(vec3(0, 1, 0), 2, new lambertian(new perlin_tex(4.0f)));
+    list[2] = new sphere(vec3(0.5f, -0.5f, 2), 0.5f, new lambertian(new perlin_tex(16.0f)));
+
+    return new object_list(list, 3, camera_t0, camera_t1);
+}
+
+scene_object *earth(float camera_t0, float camera_t1) {
+
+    int width, height, channels;
+    uint8 *pixels = stbi_load("../earthmap.jpg", &width, &height, &channels, 3);
+    if (!pixels) DebugBreak();
+
+    material *mat = new lambertian(new image_tex(pixels, width, height));
+
+    scene_object **list = new scene_object*[3];
+    list[0] = new sphere(vec3(0, -1001, 0), 1000, new lambertian(new perlin_tex(1.0f)));
+    list[1] = new sphere(vec3(0, 1, 0), 2, mat);
+    list[2] = new sphere(vec3(0.5f, -0.5f, 2), 0.5f, mat);
 
     return new object_list(list, 3, camera_t0, camera_t1);
 }
@@ -385,8 +469,10 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
     //scene_object *scene = random_scene(500, shutter_t0, shutter_t1);
     //scene_object *scene = two_spheres(shutter_t0, shutter_t1);
-    scene_object *scene = spheres_perlin(shutter_t0, shutter_t1);
-    
+    //scene_object *scene = spheres_perlin(shutter_t0, shutter_t1);
+    //scene_object *scene = earth(shutter_t0, shutter_t1);
+    scene_object *scene = random_scene_2(500, shutter_t0, shutter_t1);
+
     // stop timer, display in window title
     LARGE_INTEGER t2_gen;
     QueryPerformanceCounter(&t2_gen);

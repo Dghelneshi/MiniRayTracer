@@ -170,6 +170,38 @@ public:
         //return vec3(1, 1, 1) * 0.5f * (1 + noise.noise(p*scale)));
         //return vec3(1, 1, 1) * noise.turbulence(p * scale);
         //return vec3(1, 1, 1) * 0.5f * (1 + noise.turbulence(p * scale));
-        return vec3(1, 1, 1)*0.5f*(1 + sin(scale * p.length() + 10 * noise.turbulence(p)));
+        return vec3(1, 1, 1)*0.5f*(1 + sin(scale * (p.length() + 10 * noise.turbulence(p))));
     }
 };
+
+
+/////////////////////////////////////////////////////////////////
+
+class image_tex : public texture {
+public:
+    uint8 *data;
+    int width, height;
+
+    image_tex() {}
+    image_tex(uint8 *pixels, int32 width, int32 height) : data(pixels), width(width), height(height) {}
+    
+    virtual vec3 sample(float u, float v, const vec3& p) const;
+};
+
+vec3 image_tex::sample(float u, float v, const vec3& p) const {
+    
+    const int bpp = 3;
+
+    int32 i = int32((    u) *  width);
+    int32 j = int32((1 - v) * height);
+
+    if (i < 0) i = 0;
+    if (j < 0) j = 0;
+    if (i > width  - 1) i = width  - 1;
+    if (j > height - 1) j = height - 1;
+
+    float r = data[(i + width*j)*bpp + 0] / 255.0f;
+    float g = data[(i + width*j)*bpp + 1] / 255.0f;
+    float b = data[(i + width*j)*bpp + 2] / 255.0f;
+    return vec3(r, g, b);
+}

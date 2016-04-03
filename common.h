@@ -18,3 +18,5 @@ typedef uint64_t uint64;
 #ifndef min
 #define min(a,b) (((a) < (b)) ? (a) : (b))
 #endif
+
+#define M_PI_F 3.14159265358979323846f
