@@ -33,8 +33,11 @@ void pcg32_srandom_r(pcg32_random_t* rng, uint64_t initstate, uint64_t initseq)
 
 ///////////////////////////////////////////////////////////////////////////////
 
-inline uint32_t rand32(pcg32_random_t* rng) {
-    return pcg32_random_r(rng);
+// convenience rng so we don't have to pass around pointers everywhere, pre-seeded so it can be used even before main is run
+static pcg32_random_t G_rng = { 11350390909718046443uLL, 6305599193148252115uLL };
+
+inline uint32_t rand32() {
+    return pcg32_random_r(&G_rng);
 }
 
 // gets a random float in range [0,1)
@@ -48,8 +51,12 @@ float randf(pcg32_random_t* rng) {
 
     return foo.f - 1.0f;
 }
+inline float randf() {
+    return randf(&G_rng);
+}
 
 #include "vec3.h"
+
 
 vec3 random_in_sphere(pcg32_random_t *rng) {
     vec3 p;
@@ -59,6 +66,10 @@ vec3 random_in_sphere(pcg32_random_t *rng) {
 
     return p;
 }
+inline vec3 random_in_sphere() {
+    return random_in_sphere(&G_rng);
+}
+
 
 vec3 random_in_disk(pcg32_random_t *rng) {
     vec3 p;
@@ -67,4 +78,7 @@ vec3 random_in_disk(pcg32_random_t *rng) {
     } while (sdot(p) >= 1.0f);
 
     return p;
+}
+inline vec3 random_in_disk() {
+    return random_in_disk(&G_rng);
 }

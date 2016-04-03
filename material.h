@@ -3,6 +3,7 @@
 #include "scene_object.h"
 #include "pcg.h"
 #include "math.h" // pow
+#include "texture.h"
 
 class material {
 public:
@@ -14,13 +15,14 @@ public:
 
 class lambertian : public material {
 public:
-    vec3 albedo;
+    texture *albedo;
 
-    lambertian(const vec3& albedo) : albedo(albedo) {};
+    lambertian(texture *albedo) : albedo(albedo) {};
+
     virtual bool scatter(const ray& r_in, const hit_record& rec, vec3 *attenuation, pcg32_random_t* rng, ray *scattered) const {
         vec3 target = rec.p + rec.n + random_in_sphere(rng);
         *scattered = ray(rec.p, target - rec.p);
-        *attenuation = albedo;
+        *attenuation = albedo->sample(0, 0, rec.p);
         return true;
     }
 };

@@ -26,6 +26,7 @@ public:
 
 //////////////////////////////////////////////////////////////////////////////////////
 
+// TODO: allow invalid bbox in list for objects like planes
 
 class object_list : public scene_object {
 public:
@@ -80,8 +81,8 @@ object_list::object_list(scene_object* l[], int n, float time0, float time1) {
     list = l;
     count = n;
 
-    vec3 minbb(INFINITY, INFINITY, INFINITY);
-    vec3 maxbb(-INFINITY, -INFINITY, -INFINITY);
+    vec3 minbb(FLT_MAX, FLT_MAX, FLT_MAX);
+    vec3 maxbb(-FLT_MAX, -FLT_MAX, -FLT_MAX);
 
     for (int i = 0; i < count; i++)
     {

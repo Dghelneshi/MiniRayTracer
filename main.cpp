@@ -18,7 +18,7 @@ static int32 G_windowWidth = 600;
 static int32 G_windowHeight = 400;
 static int32 G_bufferWidth = G_windowWidth;
 static int32 G_bufferHeight = G_windowHeight;
-static int32 G_samplesPerPixel = 64; // TODO: will be reduced to the next smallest square number until I implement a more robust sample distribution
+static int32 G_samplesPerPixel = 256; // TODO: will be reduced to the next smallest square number until I implement a more robust sample distribution
 static int32 G_maxBounces = 16;
 static int32 G_numThreads = 0; // 0 == automatic
 static int32 G_packetSize = 32;
@@ -191,6 +191,86 @@ void ApplyCmdLine() {
 }
 
 
+//////////////////////////
+//        SCENES        //
+//////////////////////////
+
+scene_object *random_scene(int n, float camera_t0, float camera_t1) {
+
+    scene_object **list = new scene_object*[n + 6];
+
+    texture *checker = new checker_tex(new uni_color_tex(vec3(0.2f, 0.3f, 0.1f)), new uni_color_tex(vec3(0.9f, 0.9f, 0.9f)));
+    list[0] = new sphere(vec3(0, -1000, 0), 1000, new lambertian(checker));
+
+    int half_sqrt_n = int(sqrtf(float(n)) * 0.5f);
+    int i = 1;
+    for (int a = -half_sqrt_n; a < half_sqrt_n; a++) {
+
+        for (int b = -half_sqrt_n; b < half_sqrt_n; b++) {
+
+            float choose_mat = randf();
+            vec3 center(a + 0.9f * randf(), 0.2f, b + 0.9f * randf());
+
+            if ((center - vec3(4, 0.2f, 0)).length() > 0.9f) {
+
+                material *mat;
+                sphere *sphere;
+
+                if (choose_mat < 0.5f) {
+                    mat = new lambertian(new uni_color_tex(vec3(randf()*randf(), randf()*randf(), randf()*randf())));
+                    sphere = new class sphere(center, 0.2f, mat, center + vec3{ 0, 0.5f*randf(), 0 }, 0.0f, 1.0f);
+                }
+                else if (choose_mat < 0.9f) {
+                    mat = new metal(0.5f * vec3(1 + randf(), 1 + randf(), 1 + randf()), randf());
+                    sphere = new class sphere(center, 0.2f, mat);
+                }
+                else {
+                    mat = new dielectric(1.4f + randf());
+                    sphere = new class sphere(center, 0.2f, mat);
+                }
+
+                list[i++] = sphere;
+            }
+        }
+    }
+
+    list[i++] = new sphere(vec3(0, 1, 0), 1.0f, new dielectric(1.5f));
+    list[i++] = new sphere(vec3(-4, 1, 0), 1.0f, new lambertian(new uni_color_tex(vec3(0.4f, 0.2f, 0.1f))));
+    list[i++] = new sphere(vec3(4, 1, 0), 1.0f, new metal(vec3(0.7f, 0.6f, 0.5f), 1.0f));
+    list[i++] = new sphere(vec3(4, 1, 3), 1.0f, new dielectric(2.4f));
+    list[i++] = new sphere(vec3(4, 1, 3), -0.95f, new dielectric(2.4f));
+
+    // 600x400x16 clang++, 1 thread, 32x32 packets
+    // n:        500 |   1000 | 10000 | 100000         | 1,000,000        
+    // list:   62.57 | 137.38 | -- too long ----------------------
+    // bvh:    12.45 |  14.14 | 19.04 |  30.79 (+0.35) | 50.32 (+3.45)
+    // bvh re:  8.55 |  10.12 | 13.91 |  18.66 (+0.40) | 23.24 (+5.89)
+
+    //return new object_list(list, i, camera_t0, camera_t1);
+    return new bvh_node(list, i, camera_t0, camera_t1);
+}
+
+scene_object *two_spheres(float camera_t0, float camera_t1) {
+    texture *checker = new checker_tex(new uni_color_tex(vec3(0.2f, 0.3f, 0.1f)), new uni_color_tex(vec3(0.9f, 0.9f, 0.9f)));
+
+    scene_object **list = new scene_object*[2];
+    list[0] = new sphere(vec3(0, -10, 0), 10, new lambertian(checker));
+    list[1] = new sphere(vec3(0, 10, 0),  10, new lambertian(checker));
+
+    return new object_list(list, 2, camera_t0, camera_t1);
+}
+
+scene_object *spheres_perlin(float camera_t0, float camera_t1) {
+
+    scene_object **list = new scene_object*[3];
+    list[0] = new sphere(vec3(0, -1000, 0), 1000, new lambertian(new perlin_tex(1.0f)));
+    list[1] = new sphere(vec3(0, 2, 0), 2, new lambertian(new perlin_tex(4.0f)));
+    list[2] = new sphere(vec3(0.5f, 0.5f, 2), 0.5f, new lambertian(new perlin_tex(16.0f)));
+
+    return new object_list(list, 3, camera_t0, camera_t1);
+}
+
+
 ////////////////////////////
 //          MAIN          //
 ////////////////////////////
@@ -210,60 +290,6 @@ LRESULT CALLBACK MainWndProc(HWND hWindow, UINT uMsg, WPARAM wParam, LPARAM lPar
     }
 
     return result;
-}
-
-scene_object *random_scene(int n, float camera_t0, float camera_t1, pcg32_random_t *rng) {
-
-    scene_object **list = new scene_object*[n + 6];
-    
-    list[0] = new sphere(vec3(0, -1000, 0), 1000, new lambertian(vec3(0.5, 0.5, 0.5)));
-
-    int half_sqrt_n = int(sqrtf(float(n)) * 0.5f);
-    int i = 1;
-    for (int a = -half_sqrt_n; a < half_sqrt_n; a++) {
-
-        for (int b = -half_sqrt_n; b < half_sqrt_n; b++) {
-
-            float choose_mat = randf(rng);
-            vec3 center(a + 0.9f * randf(rng), 0.2f, b + 0.9f * randf(rng));
-
-            if ((center - vec3(4, 0.2f, 0)).length() > 0.9f) {
-
-                material *mat;
-                sphere *sphere;
-
-                if (choose_mat < 0.5f) {
-                    mat = new lambertian(vec3(randf(rng)*randf(rng), randf(rng)*randf(rng), randf(rng)*randf(rng)));
-                    sphere = new class sphere(center, 0.2f, mat, center + vec3{ 0, 0.5f*randf(rng), 0 }, 0.0f, 1.0f);
-                }
-                else if (choose_mat < 0.9f) {
-                    mat = new metal(0.5f * vec3(1 + randf(rng), 1 + randf(rng), 1 + randf(rng)), randf(rng));
-                    sphere = new class sphere(center, 0.2f, mat);
-                }
-                else {
-                    mat = new dielectric(1.4f + randf(rng));
-                    sphere = new class sphere(center, 0.2f, mat);
-                }
-
-                list[i++] = sphere;
-            }
-        }
-    }
-
-    list[i++] = new sphere(vec3(0, 1, 0),   1.0f, new dielectric(1.5f));
-    list[i++] = new sphere(vec3(-4, 1, 0),  1.0f, new lambertian(vec3(0.4f, 0.2f, 0.1f)));
-    list[i++] = new sphere(vec3(4, 1, 0),   1.0f, new metal(vec3(0.7f, 0.6f, 0.5f), 1.0f));
-    list[i++] = new sphere(vec3(4, 1, 3),   1.0f, new dielectric(2.4f));
-    list[i++] = new sphere(vec3(4, 1, 3), -0.95f, new dielectric(2.4f));
-
-    // 600x400x16 clang++, 1 thread, 32x32 packets
-    // n:        500 |   1000 | 10000 | 100000         | 1,000,000        
-    // list:   62.57 | 137.38 | -- too long ----------------------
-    // bvh:    12.45 |  14.14 | 19.04 |  30.79 (+0.35) | 50.32 (+3.45)
-    // bvh re:  8.55 |  10.12 | 13.91 |  18.66 (+0.40) | 23.24 (+5.89)
-
-    //return new object_list(list, i, camera_t0, camera_t1);
-    return new bvh_node(list, i, camera_t0, camera_t1);
 }
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {
@@ -286,6 +312,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     ApplyCmdLine();
 
     if (bConsole) FreeConsole();
+
+    LARGE_INTEGER freq;
+    QueryPerformanceFrequency(&freq);
 
     WNDCLASSEX windowClass = { sizeof(windowClass) };
     windowClass.lpfnWndProc = MainWndProc;
@@ -343,19 +372,20 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
     camera *camera = new class camera(cam_pos, lookat, up, vfov, aspect, aperture, focus_dist, shutter_t0, shutter_t1);
 
-    // setup scene
+
+    /////////////////////////
+    // --- Setup Scene --- //
+    /////////////////////////
+
     SetWindowTextA(mainWindow, "MiniRayTracer - Generating Scene...");
     
     // start timer for scene generation
-    LARGE_INTEGER freq;
-    QueryPerformanceFrequency(&freq);
     LARGE_INTEGER t1_gen;
     QueryPerformanceCounter(&t1_gen);
 
-    pcg32_random_t rng = {};
-    pcg32_srandom_r(&rng, 0xabcd571f2851b2a5ULL, 0xabc0fe8761cbafe9ULL);
-
-    scene_object *scene = random_scene(500, shutter_t0, shutter_t1, &rng);
+    //scene_object *scene = random_scene(500, shutter_t0, shutter_t1);
+    //scene_object *scene = two_spheres(shutter_t0, shutter_t1);
+    scene_object *scene = spheres_perlin(shutter_t0, shutter_t1);
     
     // stop timer, display in window title
     LARGE_INTEGER t2_gen;
@@ -423,7 +453,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     {
         threads[i] = (HANDLE) _beginthreadex(NULL, 0, &draw, &threadArgs[i], 0, NULL);
     }
-
 
 
     // main loop, draws current picture in window
