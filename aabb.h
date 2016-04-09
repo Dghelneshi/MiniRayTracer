@@ -1,3 +1,5 @@
+#pragma once
+
 #include "common.h"
 #include "vec3.h"
 #include "ray.h"
@@ -19,7 +21,7 @@ public:
     aabb(const vec3& a, const vec3& b) : _min(a), _max(b) {}
 
     bool hit(const ray& r, float tmin, float tmax) const {
-
+        
         for (int axis = 0; axis < 3; axis++) {
 
             float invDir = 1.0f / r.dir[axis];

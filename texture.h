@@ -1,3 +1,4 @@
+#pragma once
 
 #include "vec3.h"
 #include "math.h" // sin, floor, abs
@@ -24,21 +25,37 @@ class checker_tex : public texture {
 public:
     texture *even;
     texture *odd;
+    float scale;
 
     checker_tex() {}
-    checker_tex(texture *t0, texture *t1) : even(t0), odd(t1) {}
+    checker_tex(texture *t0, texture *t1, float scale) : even(t0), odd(t1), scale(scale) {}
 
     virtual vec3 sample(float u, float v, const vec3& p) const {
+#if 0
         float sines = sin(10 * p.x) * sin(10 * p.y) * sin(10 * p.z);
         if (sines < 0)
             return odd->sample(u, v, p);
         else
             return even->sample(u, v, p);
+#else       
+        float u_ = scale * u;
+        float v_ = scale * v;
+        int32 select = int32(floor(u_) + floor(v_));
+
+        if (select & 1) {
+            return odd->sample(u, v, p);
+        }
+        else
+            return even->sample(u, v, p);
+#endif
     }
 
 };
 
-//////////////////////////////////////////////////////////////
+
+////////////////////////
+//    PERLIN NOISE    //
+////////////////////////
 
 float trilerp(float c[2][2][2], float u, float v, float w) {
     float acc = 0;

@@ -16,11 +16,11 @@ struct hit_record {
     material *mat_ptr;
 };
 
-// abstract base class
+
 class scene_object {
 public:
     virtual bool hit(const ray& r, float tmin, float tmax, hit_record *rec) const = 0;
-    virtual bool bounding_box(aabb* box, float t0, float t1) const = 0;
+    virtual bool bounding_box(aabb* box, float time0, float time1) const = 0;
 
     virtual ~scene_object() {}
 };
@@ -28,7 +28,7 @@ public:
 
 //////////////////////////////////////////////////////////////////////////////////////
 
-// TODO: allow invalid bbox in list for objects like planes
+// TODO: test invalid bbox code (for objects like planes)
 
 class object_list : public scene_object {
 public:
@@ -41,10 +41,9 @@ public:
 
     virtual bool hit(const ray& r, float tmin, float tmax, hit_record *rec) const;
 
-    virtual bool bounding_box(aabb* b, float t0, float t1) const {
+    virtual bool bounding_box(aabb* b, float time0, float time1) const {
 
         if (box._min.x > box._max.x) { // list contains objects with no valid bbox
-            DebugBreak();
             return false;
         }
         else {
@@ -56,7 +55,9 @@ public:
 
 bool object_list::hit(const ray& r, float tmin, float tmax, hit_record *rec) const {
     
-    if (box.hit(r, tmin, tmax)) {
+    bool isBoxInvalid = box._min.x > box._max.x;
+
+    if (isBoxInvalid || box.hit(r, tmin, tmax)) {
         hit_record cur_rec;
         bool hit = false;
         float closest = tmax;
@@ -99,8 +100,7 @@ object_list::object_list(scene_object* l[], int n, float time0, float time1) {
             }
         }
         else {
-            DebugBreak();
-            box = aabb(minbb, maxbb);
+            box = aabb(maxbb, minbb); // generate invalid bbox (inverted)
             return;
         }
     }
@@ -109,8 +109,9 @@ object_list::object_list(scene_object* l[], int n, float time0, float time1) {
 }
 
 
-//////////////////////////////////////////////////////////////////////////////////////
-
+///////////////////////////////////
+//   BOUNDING VOLUME HIERARCHY   //
+///////////////////////////////////
 
 class bvh_node : public scene_object {
 public:
@@ -121,7 +122,7 @@ public:
     bvh_node() {}
     bvh_node(scene_object* list[], int n, float time0, float time1);
 
-    virtual bool bounding_box(aabb* b, float t0, float t1) const {
+    virtual bool bounding_box(aabb* b, float time0, float time1) const {
         *b = box;
         return true;
     }

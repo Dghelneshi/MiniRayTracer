@@ -15,5 +15,6 @@
     <ClInclude Include="..\material.h" />
     <ClInclude Include="..\aabb.h" />
     <ClInclude Include="..\texture.h" />
+    <ClInclude Include="..\rect.h" />
   </ItemGroup>
 </Project>

@@ -156,6 +156,7 @@
     <ClInclude Include="..\material.h" />
     <ClInclude Include="..\pcg.h" />
     <ClInclude Include="..\ray.h" />
+    <ClInclude Include="..\rect.h" />
     <ClInclude Include="..\scene_object.h" />
     <ClInclude Include="..\sphere.h" />
     <ClInclude Include="..\texture.h" />

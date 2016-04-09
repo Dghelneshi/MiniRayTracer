@@ -11,6 +11,7 @@
 #include "material.h"
 #include "scene_object.h"
 #include "sphere.h"
+#include "rect.h"
 #include "camera.h"
 #include "work_queue.h"
 #define STB_IMAGE_IMPLEMENTATION
@@ -20,7 +21,7 @@ static int32 G_windowWidth = 600;
 static int32 G_windowHeight = 400;
 static int32 G_bufferWidth = G_windowWidth;
 static int32 G_bufferHeight = G_windowHeight;
-static int32 G_samplesPerPixel = 64; // TODO: will be reduced to the next smallest square number until I implement a more robust sample distribution
+static int32 G_samplesPerPixel = 256; // TODO: will be reduced to the next smallest square number until I implement a more robust sample distribution
 static int32 G_maxBounces = 16;
 static int32 G_numThreads = 0; // 0 == automatic
 static int32 G_packetSize = 32;
@@ -40,17 +41,22 @@ vec3 trace(const ray& r, const scene_object& scene, pcg32_random_t *rng, int32 d
     if (scene.hit(r, 0.001f, FLT_MAX, &rec)) {
         ray scattered;
         vec3 attenuation;
+        vec3 emitted = rec.mat_ptr->sampleEmissive(rec.u, rec.v, rec.p);
         if ((depth < G_maxBounces) && rec.mat_ptr->scatter(r, rec, &attenuation, rng, &scattered)) {
-            return attenuation * trace(scattered, scene, rng, depth + 1);
+            return emitted + attenuation * trace(scattered, scene, rng, depth + 1);
         }
         else {
-            return vec3(0, 0, 0);
+            return emitted;// vec3(0, 0, 0);
         }
     }
 
-    else { // background (sky)
+    else {
+        return vec3(0, 0, 0);
+
+        // background (sky)
         float t = 0.5f * (r.dir.y + 1.0f);
         return (1.0f - t) * vec3(1, 1, 1) + t * vec3(0.5f, 0.7f, 1.0f);
+        
     }
 }
 
@@ -59,14 +65,17 @@ struct vec2 {
     float x;
     float y;
 };
+struct scene {
+    scene_object *objects;
+    camera *camera;
+};
 
 // worker thread arguments
 struct drawArgs {
     uint64 initstate;
     uint64 initseq;
     work_queue* queue;
-    scene_object *scene;
-    camera *camera;
+    scene scene;
     vec2 *sample_dist; // array of sample offsets
     int32 numSamples;
 };
@@ -74,7 +83,10 @@ struct drawArgs {
 // main worker thread function
 unsigned int __stdcall draw(void * argp) {
 
+    SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL); // ensure main thread gets enough CPU time
+
     drawArgs args = *(drawArgs*) argp;
+
     
     pcg32_random_t rng = {};
     pcg32_srandom_r(&rng, args.initstate, args.initseq);
@@ -93,14 +105,17 @@ unsigned int __stdcall draw(void * argp) {
                     float u = (x + args.sample_dist[i].x) / (float) G_bufferWidth;
                     float v = (y + args.sample_dist[i].y) / (float) G_bufferHeight;
 
-                    ray r = args.camera->get_ray(u, v, &rng);
+                    ray r = args.scene.camera->get_ray(u, v, &rng);
 
-                    color += trace(r, *args.scene, &rng, 0);
-
+                    color += trace(r, *args.scene.objects, &rng, 0);
                 }
                 color /= float(args.numSamples);
 
                 color.gamma_correct();
+
+                if (color.r > 1.0f) color.r = 1.0f;
+                if (color.g > 1.0f) color.g = 1.0f;
+                if (color.b > 1.0f) color.b = 1.0f;
 
                 uint32 red   = (uint32) (255.99f * color.r);
                 uint32 green = (uint32) (255.99f * color.g);
@@ -198,11 +213,25 @@ void ApplyCmdLine() {
 //        SCENES        //
 //////////////////////////
 
-scene_object *random_scene(int n, float camera_t0, float camera_t1) {
+scene random_scene(int n) {
 
+    // setup camera
+    vec3 cam_pos = { 11, 2.2f, 2.5f };
+    vec3 lookat = { 2.8f, 0.5f, 1.2f };
+    vec3 up = { 0, 1, 0 };
+    float vfov = 27.0f;
+    float aspect = G_bufferWidth / (float) G_bufferHeight;
+    float aperture = 0.09f;
+    float focus_dist = (cam_pos - lookat).length();
+    float shutter_t0 = 0.0f;
+    float shutter_t1 = 1.0f;
+
+    camera *cam = new camera(cam_pos, lookat, up, vfov, aspect, aperture, focus_dist, shutter_t0, shutter_t1);
+
+    // setup scene objects
     scene_object **list = new scene_object*[n + 6];
 
-    texture *checker = new checker_tex(new uni_color_tex(vec3(0.2f, 0.3f, 0.1f)), new uni_color_tex(vec3(0.9f, 0.9f, 0.9f)));
+    texture *checker = new checker_tex(new uni_color_tex(vec3(0.2f, 0.3f, 0.1f)), new uni_color_tex(vec3(0.9f, 0.9f, 0.9f)), 10.0f);
     list[0] = new sphere(vec3(0, -1000, 0), 1000, new lambertian(checker));
 
     int half_sqrt_n = int(sqrtf(float(n)) * 0.5f);
@@ -249,12 +278,28 @@ scene_object *random_scene(int n, float camera_t0, float camera_t1) {
     // bvh:    12.45 |  14.14 | 19.04 |  30.79 (+0.35) | 50.32 (+3.45)
     // bvh re:  8.55 |  10.12 | 13.91 |  18.66 (+0.40) | 23.24 (+5.89)
 
-    //return new object_list(list, i, camera_t0, camera_t1);
-    return new bvh_node(list, i, camera_t0, camera_t1);
+    //scene_object *objects = new object_list(list, i, camera_t0, camera_t1);
+    scene_object *objects = new bvh_node(list, i, shutter_t0, shutter_t1);
+
+    return scene{ objects, cam };
 }
 
-scene_object *random_scene_2(int n, float camera_t0, float camera_t1) {
+scene random_scene_2(int n) {
 
+    // setup camera
+    vec3 cam_pos = { 11, 2.2f, 2.5f };
+    vec3 lookat = { 2.8f, 0.5f, 1.2f };
+    vec3 up = { 0, 1, 0 };
+    float vfov = 27.0f;
+    float aspect = G_bufferWidth / (float) G_bufferHeight;
+    float aperture = 0.09f;
+    float focus_dist = (cam_pos - lookat).length();
+    float shutter_t0 = 0.0f;
+    float shutter_t1 = 1.0f;
+
+    camera *cam = new camera(cam_pos, lookat, up, vfov, aspect, aperture, focus_dist, shutter_t0, shutter_t1);
+
+    // setup scene objects
     scene_object **list = new scene_object*[n + 6];
 
     int width, height, channels;
@@ -262,7 +307,7 @@ scene_object *random_scene_2(int n, float camera_t0, float camera_t1) {
     if (!pixels) DebugBreak();
 
     material *earth = new lambertian(new image_tex(pixels, width, height));
-    material *checker = new lambertian(new checker_tex(new uni_color_tex(vec3(0.2f, 0.3f, 0.1f)), new uni_color_tex(vec3(0.9f, 0.9f, 0.9f))));
+    material *checker = new lambertian(new checker_tex(new uni_color_tex(vec3(0.2f, 0.3f, 0.1f)), new uni_color_tex(vec3(0.9f, 0.9f, 0.9f)), 10.0f));
     material *perlin = new lambertian(new perlin_tex(1.0f));
     material *perlin_small = new lambertian(new perlin_tex(4.0f));
 
@@ -314,32 +359,81 @@ scene_object *random_scene_2(int n, float camera_t0, float camera_t1) {
     list[i++] = new sphere(vec3(4, 1, 3), 1.0f, new dielectric(2.4f));
     list[i++] = new sphere(vec3(4, 1, 3), -0.95f, new dielectric(2.4f));
 
-    return new bvh_node(list, i, camera_t0, camera_t1);
+    scene_object *objects = new bvh_node(list, i, shutter_t0, shutter_t1);
+
+    return scene{ objects, cam };
 }
 
 
-scene_object *two_spheres(float camera_t0, float camera_t1) {
-    texture *checker = new checker_tex(new uni_color_tex(vec3(0.2f, 0.3f, 0.1f)), new uni_color_tex(vec3(0.9f, 0.9f, 0.9f)));
+scene two_spheres() {
+
+    // setup camera
+    vec3 cam_pos = { 11, 2.2f, 2.5f };
+    vec3 lookat = { 2.8f, 0.5f, 1.2f };
+    vec3 up = { 0, 1, 0 };
+    float vfov = 27.0f;
+    float aspect = G_bufferWidth / (float) G_bufferHeight;
+    float aperture = 0.09f;
+    float focus_dist = (cam_pos - lookat).length();
+    float shutter_t0 = 0.0f;
+    float shutter_t1 = 1.0f;
+
+    camera *cam = new camera(cam_pos, lookat, up, vfov, aspect, aperture, focus_dist, shutter_t0, shutter_t1);
+
+    // setup scene objects
+    texture *checker = new checker_tex(new uni_color_tex(vec3(0.2f, 0.3f, 0.1f)), new uni_color_tex(vec3(0.9f, 0.9f, 0.9f)), 10.0f);
 
     scene_object **list = new scene_object*[2];
     list[0] = new sphere(vec3(0, -10, 0), 10, new lambertian(checker));
     list[1] = new sphere(vec3(0, 10, 0),  10, new lambertian(checker));
 
-    return new object_list(list, 2, camera_t0, camera_t1);
+    scene_object *objects = new object_list(list, 2, shutter_t0, shutter_t1);
+
+    return scene{ objects, cam };
 }
 
-scene_object *spheres_perlin(float camera_t0, float camera_t1) {
+scene spheres_perlin() {
 
+    // setup camera
+    vec3 cam_pos = { 11, 2.2f, 2.5f };
+    vec3 lookat = { 2.8f, 0.5f, 1.2f };
+    vec3 up = { 0, 1, 0 };
+    float vfov = 27.0f;
+    float aspect = G_bufferWidth / (float) G_bufferHeight;
+    float aperture = 0.09f;
+    float focus_dist = (cam_pos - lookat).length();
+    float shutter_t0 = 0.0f;
+    float shutter_t1 = 1.0f;
+
+    camera *cam = new camera(cam_pos, lookat, up, vfov, aspect, aperture, focus_dist, shutter_t0, shutter_t1);
+
+    // setup scene objects
     scene_object **list = new scene_object*[3];
     list[0] = new sphere(vec3(0, -1001, 0), 1000, new lambertian(new perlin_tex(1.0f)));
     list[1] = new sphere(vec3(0, 1, 0), 2, new lambertian(new perlin_tex(4.0f)));
     list[2] = new sphere(vec3(0.5f, -0.5f, 2), 0.5f, new lambertian(new perlin_tex(16.0f)));
 
-    return new object_list(list, 3, camera_t0, camera_t1);
+    scene_object *objects = new object_list(list, 3, shutter_t0, shutter_t1);
+
+    return scene{ objects, cam };
 }
 
-scene_object *earth(float camera_t0, float camera_t1) {
+scene earth() {
 
+    // setup camera
+    vec3 cam_pos = { 11, 2.2f, 2.5f };
+    vec3 lookat = { 2.8f, 0.5f, 1.2f };
+    vec3 up = { 0, 1, 0 };
+    float vfov = 27.0f;
+    float aspect = G_bufferWidth / (float) G_bufferHeight;
+    float aperture = 0.09f;
+    float focus_dist = (cam_pos - lookat).length();
+    float shutter_t0 = 0.0f;
+    float shutter_t1 = 1.0f;
+
+    camera *cam = new camera(cam_pos, lookat, up, vfov, aspect, aperture, focus_dist, shutter_t0, shutter_t1);
+
+    // setup scene objects
     int width, height, channels;
     uint8 *pixels = stbi_load("../earthmap.jpg", &width, &height, &channels, 3);
     if (!pixels) DebugBreak();
@@ -351,7 +445,47 @@ scene_object *earth(float camera_t0, float camera_t1) {
     list[1] = new sphere(vec3(0, 1, 0), 2, mat);
     list[2] = new sphere(vec3(0.5f, -0.5f, 2), 0.5f, mat);
 
-    return new object_list(list, 3, camera_t0, camera_t1);
+    scene_object *objects = new object_list(list, 3, shutter_t0, shutter_t1);
+
+    return scene{ objects, cam };
+}
+
+scene cornell_box() {
+
+    // setup camera
+    vec3 cam_pos = { 278, 278, -800 };
+    vec3 lookat = { 278, 278, 200 };
+    vec3 up = { 0, 1, 0 };
+    float vfov = 40.0f;
+    float aspect = G_bufferWidth / (float) G_bufferHeight;
+    float aperture = 50.00f;
+    float focus_dist = (cam_pos - lookat).length();
+    float shutter_t0 = 0.0f;
+    float shutter_t1 = 1.0f;
+
+    camera *cam = new camera(cam_pos, lookat, up, vfov, aspect, aperture, focus_dist, shutter_t0, shutter_t1);
+
+    // setup scene objects
+    int n = 6;
+    scene_object **list = new scene_object*[n];
+    int i = 0;
+
+    material *red = new lambertian(new uni_color_tex(vec3(0.65f, 0.05f, 0.05f)));
+    material *white = new lambertian(new uni_color_tex(vec3(0.73f, 0.73f, 0.73f)));
+    material *green = new lambertian(new uni_color_tex(vec3(0.12f, 0.45f, 0.15f)));
+    material *light = new diffuse_light(new uni_color_tex(vec3(5.0f, 5.0f, 5.0f)));
+
+    list[i++] = new yz_rect(555, 0, 0, 555, 555, green);
+    list[i++] = new yz_rect(0, 555, 0, 555, 0, red);
+ //   list[i++] = new xz_rect(343, 213, 227, 332, 554, light); // smaller light, needs A LOT more samples without bias
+    list[i++] = new xz_rect(443, 113, 127, 432, 554, light);
+    list[i++] = new xz_rect(555, 0, 0, 555, 555, white);
+    list[i++] = new xz_rect(0, 555, 0, 555, 0, white);
+    list[i++] = new xy_rect(555, 0, 0, 555, 555, white);
+
+    scene_object *objects = new object_list(list, n, shutter_t0, shutter_t1);
+
+    return scene{ objects, cam };
 }
 
 
@@ -443,20 +577,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
     G_backBuffer = (uint32*) calloc(G_bufferWidth * G_bufferHeight, 4);
 
-    // setup camera
-    vec3 cam_pos = { 11, 2.2f, 2.5f };
-    vec3 lookat = { 2.8f, 0.5f, 1.2f };
-    vec3 up = { 0, 1, 0 };
-    float vfov = 27.0f;
-    float aspect = G_bufferWidth / (float) G_bufferHeight;
-    float aperture = 0.09f;
-    float focus_dist = (cam_pos - lookat).length();
-    float shutter_t0 = 0.0f;
-    float shutter_t1 = 1.0f;
-
-    camera *camera = new class camera(cam_pos, lookat, up, vfov, aspect, aperture, focus_dist, shutter_t0, shutter_t1);
-
-
     /////////////////////////
     // --- Setup Scene --- //
     /////////////////////////
@@ -467,11 +587,12 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     LARGE_INTEGER t1_gen;
     QueryPerformanceCounter(&t1_gen);
 
-    //scene_object *scene = random_scene(500, shutter_t0, shutter_t1);
-    //scene_object *scene = two_spheres(shutter_t0, shutter_t1);
-    //scene_object *scene = spheres_perlin(shutter_t0, shutter_t1);
-    //scene_object *scene = earth(shutter_t0, shutter_t1);
-    scene_object *scene = random_scene_2(500, shutter_t0, shutter_t1);
+    //scene scene = random_scene(500);
+    //scene scene = two_spheres();
+    //scene scene = spheres_perlin();
+    //scene scene = earth();
+    //scene scene = random_scene_2(500);
+    scene scene = cornell_box();
 
     // stop timer, display in window title
     LARGE_INTEGER t2_gen;
@@ -521,7 +642,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         threadArgs[i].initstate = 0x1234567890abcdefULL;
         threadArgs[i].initseq = 0xfedcba0987654321ULL;
         threadArgs[i].queue = queue;
-        threadArgs[i].camera = camera;
         threadArgs[i].scene = scene;
         threadArgs[i].sample_dist = sample_dist;
         threadArgs[i].numSamples = numSamples;

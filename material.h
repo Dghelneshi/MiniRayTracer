@@ -8,10 +8,13 @@
 class material {
 public:
     virtual bool scatter(const ray& r_in, const hit_record& rec, vec3 *attenuation, pcg32_random_t* rng, ray *scattered) const = 0;
+    virtual vec3 sampleEmissive(float u, float v, const vec3& p) const {
+        return vec3(0, 0, 0);
+    }
     virtual ~material() {};
 };
 
-////////////////////////////////////
+////////////// LAMBERTIAN //////////////
 
 class lambertian : public material {
 public:
@@ -27,7 +30,7 @@ public:
     }
 };
 
-////////////////////////////////////
+//////////////// METAL ////////////////
 
 class metal : public material {
 public:
@@ -46,7 +49,7 @@ public:
     }
 };
 
-////////////////////////////////////
+////////////// DIELECTRIC //////////////
 
 // cosine is cosI for ni < nt, otherwise cosT
 // see https://graphics.stanford.edu/courses/cs148-10-summer/docs/2006--degreve--reflection_refraction.pdf
@@ -108,3 +111,20 @@ public:
         return true;
     }
 };
+
+//////////// DIFFUSE LIGHT ////////////
+
+class diffuse_light : public material {
+public:
+    texture *emissive;
+
+    diffuse_light(texture *emissive) : emissive(emissive) {};
+
+    virtual bool scatter(const ray& r_in, const hit_record& rec, vec3 *attenuation, pcg32_random_t* rng, ray *scattered) const {
+        return false;
+    }
+    virtual vec3 sampleEmissive(float u, float v, const vec3& p) const {
+        return emissive->sample(u, v, p);
+    }
+};
+
