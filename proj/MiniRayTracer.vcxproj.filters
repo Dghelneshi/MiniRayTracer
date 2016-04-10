@@ -19,5 +19,7 @@
     <ClInclude Include="..\box.h" />
     <ClInclude Include="..\scenes.h" />
     <ClInclude Include="..\volumes.h" />
+    <ClInclude Include="..\triangle.h" />
+    <ClInclude Include="..\obj_loader.h" />
   </ItemGroup>
 </Project>

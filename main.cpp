@@ -15,27 +15,30 @@
 #include "box.h"
 #include "volumes.h"
 #include "camera.h"
+#include "triangle.h"
+#include "obj_loader.h"
 #include "work_queue.h"
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 
-static int32 G_windowWidth = 600;
+static int32 G_windowWidth = 450;
 static int32 G_windowHeight = 400;
 static int32 G_bufferWidth = G_windowWidth;
 static int32 G_bufferHeight = G_windowHeight;
-static int32 G_samplesPerPixel = 64; // TODO: will be reduced to the next smallest square number until I implement a more robust sample distribution
-static int32 G_maxBounces = 16;
+static int32 G_samplesPerPixel = 264; // TODO: will be reduced to the next smallest square number until I implement a more robust sample distribution
+static int32 G_maxBounces = 32;
 static int32 G_numThreads = 0; // 0 == automatic
 static int32 G_packetSize = 32;
 static int32 G_threadingMode = 1;
 static bool G_isRunning = true;
+static bool G_delay = false; // delayed start for recording
 static volatile LONG G_numTracesDone = 0;
 static volatile int32 *G_workDoneCounter;
 static uint32* G_backBuffer;
 static vec3 *G_linearBackBuffer;
 
 #include "scenes.h"
-static int32 G_sceneSelect = SCENE_BOOK2_FINAL;
+static int32 G_sceneSelect = SCENE_TRIANGLES;
 
 ////////////////////////////
 //       RAY TRACER       //
@@ -303,6 +306,9 @@ LRESULT CALLBACK MainWndProc(HWND hWindow, UINT uMsg, WPARAM wParam, LPARAM lPar
     LRESULT result = 0;
 
     switch (uMsg) {
+    case WM_LBUTTONUP:
+        G_delay = false;
+        break;
     case WM_DESTROY:
     case WM_CLOSE: {
         G_isRunning = false; // will exit the program soon(tm)!
@@ -391,12 +397,12 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     /////////////////////////
 
     SetWindowTextA(mainWindow, "MiniRayTracer - Generating Scene...");
-    
+
     // start timer for scene generation
     LARGE_INTEGER t1_gen;
     QueryPerformanceCounter(&t1_gen);
 
-    scene scene = select_scene((scenes)G_sceneSelect);
+    scene scene = select_scene((scenes) G_sceneSelect);
 
     // stop timer, display in window title
     LARGE_INTEGER t2_gen;
@@ -423,7 +429,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
             sample_dist[i * sqrt_samples + j].y = v_adjust;
         }
     }
-    
+
     /////////////////////////////
     // --- Multi-Threading --- //
     /////////////////////////////
@@ -443,14 +449,14 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     thread_fn thread_fun;
     void *threadArgs;
     size_t argSize;
-    
+
     int32 totalWork = 0;
     G_workDoneCounter = (int32*) calloc(G_numThreads, sizeof(int32));
 
     if (G_threadingMode == 0) {
         thread_fun = draw;
         work_queue *queue = new work_queue(G_bufferWidth, G_bufferHeight, G_packetSize, &totalWork);
-        
+
         drawArgs *threadArgs_ = (drawArgs*) calloc(G_numThreads, sizeof(drawArgs));
         for (int i = 0; i < G_numThreads; i++)
         {
@@ -484,6 +490,19 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         }
         threadArgs = (void*) threadArgs_;
         argSize = sizeof(draw2Args);
+    }
+
+
+    // delayed start for recording
+    PatBlt(DC, 0, 0, G_windowWidth, G_windowHeight, BLACKNESS);
+
+    while (G_delay && G_isRunning) {
+        MSG msg;
+        while (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE)) {
+            TranslateMessage(&msg);
+            DispatchMessage(&msg);
+        }
+        Sleep(33);
     }
 
     // start time for ray tracer

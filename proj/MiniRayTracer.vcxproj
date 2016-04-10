@@ -154,6 +154,8 @@
     <ClInclude Include="..\box.h" />
     <ClInclude Include="..\camera.h" />
     <ClInclude Include="..\common.h" />
+    <ClInclude Include="..\obj_loader.h" />
+    <ClInclude Include="..\triangle.h" />
     <ClInclude Include="..\material.h" />
     <ClInclude Include="..\pcg.h" />
     <ClInclude Include="..\ray.h" />

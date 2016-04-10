@@ -152,6 +152,29 @@ inline vec3 inv_gamma_correct(const vec3& c) {
     return vec3(c.r * c.r, c.g * c.g, c.b * c.b);
 }
 
+inline vec3 vmin(const vec3& a, const vec3& b) {
+    float xmin = min(a.x, b.x);
+    float ymin = min(a.y, b.y);
+    float zmin = min(a.z, b.z);
+    return vec3(xmin, ymin, zmin);
+}
+
+inline vec3 vmin(const vec3& a, const vec3& b, const vec3& c) {
+    return vmin(vmin(a, b), c);
+}
+
+inline vec3 vmax(const vec3& a, const vec3& b) {
+    float xmax = max(a.x, b.x);
+    float ymax = max(a.y, b.y);
+    float zmax = max(a.z, b.z);
+    return vec3(xmax, ymax, zmax);
+}
+
+inline vec3 vmax(const vec3& a, const vec3& b, const vec3& c) {
+    return vmax(vmax(a, b), c);
+}
+
+
 inline vec3 vec3::reflect(const vec3& n) {
     *this = *this - (2 * dot(*this, n) * n);
     return *this;

@@ -79,36 +79,6 @@ public:
         int32 xCount = (bufferWidth  + (packetSize - 1)) / packetSize;
         int32 yCount = (bufferHeight + (packetSize - 1)) / packetSize;
 
-#if 0
-        int32 totalCount = 0;
-        // each thread gets separate (disjoint) packets
-        for (int threadId = 0; threadId < numThreads; threadId++) {
-
-            int32 maxWorkCount = yCount * ((xCount / numThreads) + 1); // maximum possible work amount per thread, for ease of allocation
-
-            worklist[threadId] = (work*) calloc(maxWorkCount, sizeof(**worklist));
-
-            int32 count = 0;
-            for (int y = 0; y < yCount; y++)
-            {
-                for (int x = threadId; x < xCount; x += numThreads)
-                {
-                    int32 xMin = x * packetSize;
-                    int32 xMax = min(xMin + packetSize, bufferWidth);
-                    int32 yMin = y * packetSize;
-                    int32 yMax = min(yMin + packetSize, bufferHeight);
-
-                    worklist[threadId][count] = { xMin, xMax, yMin, yMax };
-                    count++;
-                }
-            }
-            if (count > maxWorkCount) DebugBreak(); // OOPS!
-            workCount[threadId] = count;
-            totalCount += count;
-        }
-        if (totalCount != (xCount * yCount)) DebugBreak(); // OOPS!
-        if (totalWork) *totalWork = totalCount * maxLoops;
-#else 
         int32 maxWorkCount = yCount * ((xCount / numThreads) + 1); // maximum possible work amount per thread, for ease of allocation
         for (int threadId = 0; threadId < numThreads; threadId++) {
             worklist[threadId] = (work*) calloc(maxWorkCount, sizeof(**worklist));
@@ -134,7 +104,6 @@ public:
         }
         
         if (totalWork) *totalWork = xCount * yCount * maxLoops;
-#endif 
     }
 
     // each thread can loop through its work queue multiple times
