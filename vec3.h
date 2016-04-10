@@ -40,6 +40,7 @@ public:
     inline float sdot() const;
     inline vec3 normalize();
     inline vec3 gamma_correct();
+    inline vec3 inv_gamma_correct();
     inline vec3 reflect(const vec3& n);
 
 };
@@ -138,6 +139,17 @@ inline vec3 vec3::gamma_correct() {
 
 inline vec3 gamma_correct(const vec3& c) {
     return vec3(sqrt(c.r), sqrt(c.g), sqrt(c.b));
+}
+
+inline vec3 vec3::inv_gamma_correct() {
+    r *= r;
+    g *= g;
+    b *= b;
+    return *this;
+}
+
+inline vec3 inv_gamma_correct(const vec3& c) {
+    return vec3(c.r * c.r, c.g * c.g, c.b * c.b);
 }
 
 inline vec3 vec3::reflect(const vec3& n) {

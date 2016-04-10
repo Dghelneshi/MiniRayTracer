@@ -5,6 +5,7 @@
 #include <stdlib.h> // qsort
 #include <math.h> // INFINITY
 
+
 class material;
 
 struct hit_record {
@@ -35,6 +36,7 @@ public:
     scene_object **list;
     int count;
     aabb box;
+    bool hasBox;
 
     object_list() {}
     object_list(scene_object* l[], int n, float time0, float time1);
@@ -43,7 +45,7 @@ public:
 
     virtual bool bounding_box(aabb* b, float time0, float time1) const {
 
-        if (box._min.x > box._max.x) { // list contains objects with no valid bbox
+        if (!hasBox) {
             return false;
         }
         else {
@@ -55,9 +57,7 @@ public:
 
 bool object_list::hit(const ray& r, float tmin, float tmax, hit_record *rec) const {
     
-    bool isBoxInvalid = box._min.x > box._max.x;
-
-    if (isBoxInvalid || box.hit(r, tmin, tmax)) {
+    if (!hasBox || box.hit(r, tmin, tmax)) {
         hit_record cur_rec;
         bool hit = false;
         float closest = tmax;
@@ -90,9 +90,9 @@ object_list::object_list(scene_object* l[], int n, float time0, float time1) {
     for (int i = 0; i < count; i++)
     {
         aabb curbox;
-        bool hasBox = list[i]->bounding_box(&curbox, time0, time1);
+        bool cur_hasBox = list[i]->bounding_box(&curbox, time0, time1);
 
-        if (hasBox) {
+        if (cur_hasBox) {
             for (int axis = 0; axis < 3; axis++)
             {
                 minbb[axis] = min(minbb[axis], curbox._min[axis]);
@@ -100,12 +100,13 @@ object_list::object_list(scene_object* l[], int n, float time0, float time1) {
             }
         }
         else {
-            box = aabb(maxbb, minbb); // generate invalid bbox (inverted)
+            hasBox = false;
             return;
         }
     }
 
     box = aabb(minbb, maxbb);
+    hasBox = true;
 }
 
 
@@ -290,4 +291,129 @@ bvh_node::bvh_node(scene_object* list[], int n, float time0, float time1) {
     //}
 
     //box = surrounding_box(box_left, box_right);
+}
+
+/////////////////////////
+//     TRANSLATION     //
+/////////////////////////
+
+class translate : public scene_object {
+public:
+    scene_object *obj;
+    vec3 offset;
+
+    translate(scene_object *o, const vec3& displacement) : obj(o), offset(displacement) {}
+    virtual bool hit(const ray& r, float tmin, float tmax, hit_record *rec) const {
+        ray moved_ray(r.origin - offset, r.dir, r.time);
+
+        if (obj->hit(moved_ray, tmin, tmax, rec)){
+            rec->p += offset;
+            return true;
+        }
+        else
+            return false;
+    }
+
+    virtual bool bounding_box(aabb *box, float time0, float time1) const {
+        if (obj->bounding_box(box, time0, time1)) {
+            *box = aabb(box->_min + offset, box->_max + offset);
+            return true;
+        }
+        else
+            return false;
+    }
+};
+
+
+////////////////////////
+//      ROTATION      //
+////////////////////////
+
+class rotate_y : public scene_object {
+public:
+    scene_object *obj;
+    aabb bbox;
+    float sin_theta;
+    float cos_theta;
+    bool hasBox;
+
+    rotate_y(scene_object *o, float angle);
+
+    virtual bool hit(const ray& r, float tmin, float tmax, hit_record *rec) const;
+    virtual bool bounding_box(aabb *box, float time0, float time1) const {
+        *box = bbox;
+        return hasBox;
+    }
+};
+
+rotate_y::rotate_y(scene_object *o, float angle) {
+    obj = o;
+    float radians = (M_PI_F / 180.0f) * angle;
+    sin_theta = sin(radians);
+    cos_theta = cos(radians);
+    hasBox = obj->bounding_box(&bbox, 0, 1);
+
+    if (!hasBox) {
+        bbox = aabb(vec3(1, 1, 1), vec3(-1, -1, -1));
+        return;
+    }
+
+    vec3 minbb(FLT_MAX, FLT_MAX, FLT_MAX);
+    vec3 maxbb(-FLT_MAX, -FLT_MAX, -FLT_MAX);
+
+    for (int i = 0; i < 2; i++)
+    {
+        for (int j = 0; j < 2; j++)
+        {
+            for (int k = 0; k < 2; k++)
+            {
+                float x = i * bbox._max.x + (1 - i) * bbox._min.x;
+                float y = j * bbox._max.y + (1 - j) * bbox._min.y;
+                float z = k * bbox._max.z + (1 - k) * bbox._min.z;
+
+                float newx = cos_theta*x + sin_theta*z;
+                float newz = cos_theta*z - sin_theta*x;
+
+                vec3 testvec(newx, y, newz);
+                for (int c = 0; c < 3; c++) {
+                    if (testvec[c] > maxbb[c])
+                        maxbb[c] = testvec[c];
+                    if (testvec[c] < minbb[c])
+                        minbb[c] = testvec[c];
+                }
+                
+            }
+        }
+    }
+    bbox = aabb(minbb, maxbb);
+}
+
+bool rotate_y::hit(const ray& r, float tmin, float tmax, hit_record *rec) const {
+
+    if (hasBox && !bbox.hit(r, tmin, tmax)) // it's faster to test against bbox first before rotating
+        return false;
+
+    vec3 origin = r.origin;
+    vec3 dir = r.dir;
+    origin.x = cos_theta * r.origin.x - sin_theta * r.origin.z;
+    origin.z = cos_theta * r.origin.z + sin_theta * r.origin.x;
+    dir.x = cos_theta * r.dir.x - sin_theta * r.dir.z;
+    dir.z = cos_theta * r.dir.z + sin_theta * r.dir.x;
+
+    ray rotated_ray(origin, dir, r.time);
+
+    if (obj->hit(rotated_ray, tmin, tmax, rec)) {
+        vec3 p = rec->p;
+        vec3 n = rec->n;
+        p.x = cos_theta * rec->p.x + sin_theta * rec->p.z;
+        p.z = cos_theta * rec->p.z - sin_theta * rec->p.x;
+
+        n.x = cos_theta * rec->n.x + sin_theta * rec->n.z;
+        n.z = cos_theta * rec->n.z - sin_theta * rec->n.x;
+        rec->p = p;
+        rec->n = n;
+        return true;
+    }
+    else
+        return false;
 }

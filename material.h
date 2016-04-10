@@ -30,6 +30,23 @@ public:
     }
 };
 
+////////////// ISOTROPIC //////////////
+
+class isotropic : public material {
+public:
+    texture *albedo;
+
+    isotropic(texture *albedo) : albedo(albedo) {};
+
+    virtual bool scatter(const ray& r_in, const hit_record& rec, vec3 *attenuation, pcg32_random_t* rng, ray *scattered) const {
+        vec3 target = rec.p + random_in_sphere(rng);
+        *scattered = ray(rec.p, target - rec.p);
+        *attenuation = albedo->sample(rec.u, rec.v, rec.p);
+        return true;
+    }
+};
+
+
 //////////////// METAL ////////////////
 
 class metal : public material {
@@ -117,14 +134,15 @@ public:
 class diffuse_light : public material {
 public:
     texture *emissive;
+    float scale;
 
-    diffuse_light(texture *emissive) : emissive(emissive) {};
+    diffuse_light(texture *emissive, float scale = 1.0f) : emissive(emissive), scale(scale) {};
 
     virtual bool scatter(const ray& r_in, const hit_record& rec, vec3 *attenuation, pcg32_random_t* rng, ray *scattered) const {
         return false;
     }
     virtual vec3 sampleEmissive(float u, float v, const vec3& p) const {
-        return emissive->sample(u, v, p);
+        return scale * emissive->sample(u, v, p);
     }
 };
 

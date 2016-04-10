@@ -12,6 +12,8 @@
 #include "scene_object.h"
 #include "sphere.h"
 #include "rect.h"
+#include "box.h"
+#include "volumes.h"
 #include "camera.h"
 #include "work_queue.h"
 #define STB_IMAGE_IMPLEMENTATION
@@ -21,15 +23,19 @@ static int32 G_windowWidth = 600;
 static int32 G_windowHeight = 400;
 static int32 G_bufferWidth = G_windowWidth;
 static int32 G_bufferHeight = G_windowHeight;
-static int32 G_samplesPerPixel = 256; // TODO: will be reduced to the next smallest square number until I implement a more robust sample distribution
+static int32 G_samplesPerPixel = 64; // TODO: will be reduced to the next smallest square number until I implement a more robust sample distribution
 static int32 G_maxBounces = 16;
 static int32 G_numThreads = 0; // 0 == automatic
 static int32 G_packetSize = 32;
-static int32 G_updateFreq = 60;
+static int32 G_threadingMode = 1;
 static bool G_isRunning = true;
 static volatile LONG G_numTracesDone = 0;
+static volatile int32 *G_workDoneCounter;
 static uint32* G_backBuffer;
+static vec3 *G_linearBackBuffer;
 
+#include "scenes.h"
+static int32 G_sceneSelect = SCENE_BOOK2_FINAL;
 
 ////////////////////////////
 //       RAY TRACER       //
@@ -51,11 +57,13 @@ vec3 trace(const ray& r, const scene_object& scene, pcg32_random_t *rng, int32 d
     }
 
     else {
-        return vec3(0, 0, 0);
-
-        // background (sky)
-        float t = 0.5f * (r.dir.y + 1.0f);
-        return (1.0f - t) * vec3(1, 1, 1) + t * vec3(0.5f, 0.7f, 1.0f);
+        if (G_sceneSelect >= SCENE_CORNELL_BOX)
+            return vec3(0, 0, 0);
+        else {
+            // background (sky)
+            float t = 0.5f * (r.dir.y + 1.0f);
+            return (1.0f - t) * vec3(1, 1, 1) + t * vec3(0.5f, 0.7f, 1.0f);
+        }
         
     }
 }
@@ -64,10 +72,6 @@ vec3 trace(const ray& r, const scene_object& scene, pcg32_random_t *rng, int32 d
 struct vec2 {
     float x;
     float y;
-};
-struct scene {
-    scene_object *objects;
-    camera *camera;
 };
 
 // worker thread arguments
@@ -78,6 +82,7 @@ struct drawArgs {
     scene scene;
     vec2 *sample_dist; // array of sample offsets
     int32 numSamples;
+    int32 threadId;
 };
 
 // main worker thread function
@@ -94,7 +99,6 @@ unsigned int __stdcall draw(void * argp) {
     while (work *work = args.queue->getWork()) // fetch new work from the queue
     {
         for (int32 y = work->yMin; y < work->yMax; y++) {
-
             for (int32 x = work->xMin; x < work->xMax; x++) {
 
                 vec3 color(0, 0, 0);
@@ -129,7 +133,81 @@ unsigned int __stdcall draw(void * argp) {
                 _endthreadex(0);
             }
         }
+        G_workDoneCounter[args.threadId]++;
     }
+
+    InterlockedIncrement(&G_numTracesDone);
+    return 0;
+}
+
+// worker thread arguments
+struct draw2Args {
+    uint64 initstate;
+    uint64 initseq;
+    work_queue_multi* queue;
+    scene scene;
+    vec2 *sample_dist; // array of sample offsets
+    int32 numSamples;
+    int32 threadId;
+};
+
+// main worker thread function
+unsigned int __stdcall draw2(void * argp) {
+
+    SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL); // ensure main thread gets enough CPU time
+
+    draw2Args args = *(draw2Args*) argp;
+
+    pcg32_random_t rng = {};
+    pcg32_srandom_r(&rng, args.initstate, args.initseq);
+
+    int i = 0; // sample counter
+    while (work *work = args.queue->getWork(args.threadId, &i)) // fetch new work from the queue
+    {
+        for (int32 y = work->yMin; y < work->yMax; y++) {
+            for (int32 x = work->xMin; x < work->xMax; x++) {
+
+                float u = (x + args.sample_dist[i].x) / (float) G_bufferWidth;
+                float v = (y + args.sample_dist[i].y) / (float) G_bufferHeight;
+
+                ray r = args.scene.camera->get_ray(u, v, &rng);
+
+                vec3 color = trace(r, *args.scene.objects, &rng, 0);
+
+                if (i > 0) {
+                    /*uint32 icolor = G_backBuffer[x + y * G_bufferWidth];
+                    float red   = ((icolor >> 16) & 0xFF) / 255.0f;
+                    float green = ((icolor >>  8) & 0xFF) / 255.0f;
+                    float blue  = ((icolor >>  0) & 0xFF) / 255.0f;
+                    vec3 old_color(red, green, blue);
+
+                    old_color.inv_gamma_correct();*/
+
+                    vec3 old_color = G_linearBackBuffer[x + y * G_bufferWidth];
+                    color = old_color + (color - old_color) * 1.0f / (i + 1.0f); // iterative average
+                }
+                G_linearBackBuffer[x + y * G_bufferWidth] = color;
+                
+                color.gamma_correct();
+
+                if (color.r > 1.0f) color.r = 1.0f;
+                if (color.g > 1.0f) color.g = 1.0f;
+                if (color.b > 1.0f) color.b = 1.0f;
+
+                uint32 red = (uint32) (255.99f * color.r);
+                uint32 green = (uint32) (255.99f * color.g);
+                uint32 blue = (uint32) (255.99f * color.b);
+
+                G_backBuffer[x + y * G_bufferWidth] = (red << 16) | (green << 8) | blue;
+            }
+            // periodically check if we want to exit prematurely
+            if (!G_isRunning) {
+                _endthreadex(0);
+            }
+        }
+        G_workDoneCounter[args.threadId]++;
+    }
+    if (i != (args.numSamples - 1)) DebugBreak();
 
     InterlockedIncrement(&G_numTracesDone);
     return 0;
@@ -200,292 +278,19 @@ void ApplyCmdLine() {
     ApplyInt32Parameter("-packetsize", &G_packetSize);
     ApplyInt32Parameter("-threads",    &G_numThreads, 0);
     ApplyInt32Parameter("-depth",      &G_maxBounces);
+    ApplyInt32Parameter("-scene",      &G_sceneSelect, 0, ENUM_SCENES_MAX - 1);
+    ApplyInt32Parameter("-mode",       &G_threadingMode, 0, 1);
 
     int printHelp = CheckParm("-help") || CheckParm("-?");
     if (printHelp > 0) {
-        printf_s("\nAvailable Parameters:\n-width -height -samples -packetsize -threads -depth\n");
+        printf_s("\nAvailable Parameters:\n\
+                 -width -height\n\
+                 -samples -depth\n\
+                 -threads -packetsize\n\
+                 -mode [0-1]\n\
+                 -scene [0-%i]\n", ENUM_SCENES_MAX - 1);
         exit(0);
     }
-}
-
-
-//////////////////////////
-//        SCENES        //
-//////////////////////////
-
-scene random_scene(int n) {
-
-    // setup camera
-    vec3 cam_pos = { 11, 2.2f, 2.5f };
-    vec3 lookat = { 2.8f, 0.5f, 1.2f };
-    vec3 up = { 0, 1, 0 };
-    float vfov = 27.0f;
-    float aspect = G_bufferWidth / (float) G_bufferHeight;
-    float aperture = 0.09f;
-    float focus_dist = (cam_pos - lookat).length();
-    float shutter_t0 = 0.0f;
-    float shutter_t1 = 1.0f;
-
-    camera *cam = new camera(cam_pos, lookat, up, vfov, aspect, aperture, focus_dist, shutter_t0, shutter_t1);
-
-    // setup scene objects
-    scene_object **list = new scene_object*[n + 6];
-
-    texture *checker = new checker_tex(new uni_color_tex(vec3(0.2f, 0.3f, 0.1f)), new uni_color_tex(vec3(0.9f, 0.9f, 0.9f)), 10.0f);
-    list[0] = new sphere(vec3(0, -1000, 0), 1000, new lambertian(checker));
-
-    int half_sqrt_n = int(sqrtf(float(n)) * 0.5f);
-    int i = 1;
-    for (int a = -half_sqrt_n; a < half_sqrt_n; a++) {
-
-        for (int b = -half_sqrt_n; b < half_sqrt_n; b++) {
-
-            float choose_mat = randf();
-            vec3 center(a + 0.9f * randf(), 0.2f, b + 0.9f * randf());
-
-            if ((center - vec3(4, 0.2f, 0)).length() > 0.9f) {
-
-                material *mat;
-                sphere *sphere;
-
-                if (choose_mat < 0.5f) {
-                    mat = new lambertian(new uni_color_tex(vec3(randf()*randf(), randf()*randf(), randf()*randf())));
-                    sphere = new class sphere(center, 0.2f, mat, center + vec3{ 0, 0.5f*randf(), 0 }, 0.0f, 1.0f);
-                }
-                else if (choose_mat < 0.9f) {
-                    mat = new metal(0.5f * vec3(1 + randf(), 1 + randf(), 1 + randf()), randf());
-                    sphere = new class sphere(center, 0.2f, mat);
-                }
-                else {
-                    mat = new dielectric(1.4f + randf());
-                    sphere = new class sphere(center, 0.2f, mat);
-                }
-
-                list[i++] = sphere;
-            }
-        }
-    }
-
-    list[i++] = new sphere(vec3(0, 1, 0), 1.0f, new dielectric(1.5f));
-    list[i++] = new sphere(vec3(-4, 1, 0), 1.0f, new lambertian(new uni_color_tex(vec3(0.4f, 0.2f, 0.1f))));
-    list[i++] = new sphere(vec3(4, 1, 0), 1.0f, new metal(vec3(0.7f, 0.6f, 0.5f), 1.0f));
-    list[i++] = new sphere(vec3(4, 1, 3), 1.0f, new dielectric(2.4f));
-    list[i++] = new sphere(vec3(4, 1, 3), -0.95f, new dielectric(2.4f));
-
-    // 600x400x16 clang++, 1 thread, 32x32 packets
-    // n:        500 |   1000 | 10000 | 100000         | 1,000,000        
-    // list:   62.57 | 137.38 | -- too long ----------------------
-    // bvh:    12.45 |  14.14 | 19.04 |  30.79 (+0.35) | 50.32 (+3.45)
-    // bvh re:  8.55 |  10.12 | 13.91 |  18.66 (+0.40) | 23.24 (+5.89)
-
-    //scene_object *objects = new object_list(list, i, camera_t0, camera_t1);
-    scene_object *objects = new bvh_node(list, i, shutter_t0, shutter_t1);
-
-    return scene{ objects, cam };
-}
-
-scene random_scene_2(int n) {
-
-    // setup camera
-    vec3 cam_pos = { 11, 2.2f, 2.5f };
-    vec3 lookat = { 2.8f, 0.5f, 1.2f };
-    vec3 up = { 0, 1, 0 };
-    float vfov = 27.0f;
-    float aspect = G_bufferWidth / (float) G_bufferHeight;
-    float aperture = 0.09f;
-    float focus_dist = (cam_pos - lookat).length();
-    float shutter_t0 = 0.0f;
-    float shutter_t1 = 1.0f;
-
-    camera *cam = new camera(cam_pos, lookat, up, vfov, aspect, aperture, focus_dist, shutter_t0, shutter_t1);
-
-    // setup scene objects
-    scene_object **list = new scene_object*[n + 6];
-
-    int width, height, channels;
-    uint8 *pixels = stbi_load("../earthmap.jpg", &width, &height, &channels, 3);
-    if (!pixels) DebugBreak();
-
-    material *earth = new lambertian(new image_tex(pixels, width, height));
-    material *checker = new lambertian(new checker_tex(new uni_color_tex(vec3(0.2f, 0.3f, 0.1f)), new uni_color_tex(vec3(0.9f, 0.9f, 0.9f)), 10.0f));
-    material *perlin = new lambertian(new perlin_tex(1.0f));
-    material *perlin_small = new lambertian(new perlin_tex(4.0f));
-
-    list[0] = new sphere(vec3(0, -1000, 0), 1000, perlin);
-
-    int half_sqrt_n = int(sqrtf(float(n)) * 0.5f);
-    int i = 1;
-    for (int a = -half_sqrt_n; a < half_sqrt_n; a++) {
-
-        for (int b = -half_sqrt_n; b < half_sqrt_n; b++) {
-
-            float choose_mat = randf();
-            vec3 center(a + 0.9f * randf(), 0.2f, b + 0.9f * randf());
-
-            if ((center - vec3(4, 0.2f, 0)).length() > 0.9f) {
-
-                material *mat;
-                sphere *sphere;
-
-                if (choose_mat < 0.3f) {
-                    mat = new lambertian(new uni_color_tex(vec3(randf()*randf(), randf()*randf(), randf()*randf())));
-                    sphere = new class sphere(center, 0.2f, mat, center + vec3{ 0, 0.5f*randf(), 0 }, 0.0f, 1.0f);
-                }
-                else {
-                    if (choose_mat < 0.6f) {
-                        mat = new metal(0.5f * vec3(1 + randf(), 1 + randf(), 1 + randf()), randf());
-                    }
-                    else if (choose_mat < 0.7f) {
-                        mat = new dielectric(1.4f + randf());
-                    }
-                    else if (choose_mat < 0.75f) {
-                        mat = earth;
-                    }
-                    else {
-                        mat = perlin_small;
-                    }
-                    sphere = new class sphere(center, 0.2f, mat);
-                }
-
-                list[i++] = sphere;
-            }
-        }
-    }
-
-
-    list[i++] = new sphere(vec3(0, 1, 0), 1.0f, new dielectric(1.5f));
-    list[i++] = new sphere(vec3(-4, 1, 0), 1.0f, checker);
-    list[i++] = new sphere(vec3(4, 1, 0), 1.0f, new metal(vec3(0.7f, 0.6f, 0.5f), 1.0f));
-    list[i++] = new sphere(vec3(4, 1, 3), 1.0f, new dielectric(2.4f));
-    list[i++] = new sphere(vec3(4, 1, 3), -0.95f, new dielectric(2.4f));
-
-    scene_object *objects = new bvh_node(list, i, shutter_t0, shutter_t1);
-
-    return scene{ objects, cam };
-}
-
-
-scene two_spheres() {
-
-    // setup camera
-    vec3 cam_pos = { 11, 2.2f, 2.5f };
-    vec3 lookat = { 2.8f, 0.5f, 1.2f };
-    vec3 up = { 0, 1, 0 };
-    float vfov = 27.0f;
-    float aspect = G_bufferWidth / (float) G_bufferHeight;
-    float aperture = 0.09f;
-    float focus_dist = (cam_pos - lookat).length();
-    float shutter_t0 = 0.0f;
-    float shutter_t1 = 1.0f;
-
-    camera *cam = new camera(cam_pos, lookat, up, vfov, aspect, aperture, focus_dist, shutter_t0, shutter_t1);
-
-    // setup scene objects
-    texture *checker = new checker_tex(new uni_color_tex(vec3(0.2f, 0.3f, 0.1f)), new uni_color_tex(vec3(0.9f, 0.9f, 0.9f)), 10.0f);
-
-    scene_object **list = new scene_object*[2];
-    list[0] = new sphere(vec3(0, -10, 0), 10, new lambertian(checker));
-    list[1] = new sphere(vec3(0, 10, 0),  10, new lambertian(checker));
-
-    scene_object *objects = new object_list(list, 2, shutter_t0, shutter_t1);
-
-    return scene{ objects, cam };
-}
-
-scene spheres_perlin() {
-
-    // setup camera
-    vec3 cam_pos = { 11, 2.2f, 2.5f };
-    vec3 lookat = { 2.8f, 0.5f, 1.2f };
-    vec3 up = { 0, 1, 0 };
-    float vfov = 27.0f;
-    float aspect = G_bufferWidth / (float) G_bufferHeight;
-    float aperture = 0.09f;
-    float focus_dist = (cam_pos - lookat).length();
-    float shutter_t0 = 0.0f;
-    float shutter_t1 = 1.0f;
-
-    camera *cam = new camera(cam_pos, lookat, up, vfov, aspect, aperture, focus_dist, shutter_t0, shutter_t1);
-
-    // setup scene objects
-    scene_object **list = new scene_object*[3];
-    list[0] = new sphere(vec3(0, -1001, 0), 1000, new lambertian(new perlin_tex(1.0f)));
-    list[1] = new sphere(vec3(0, 1, 0), 2, new lambertian(new perlin_tex(4.0f)));
-    list[2] = new sphere(vec3(0.5f, -0.5f, 2), 0.5f, new lambertian(new perlin_tex(16.0f)));
-
-    scene_object *objects = new object_list(list, 3, shutter_t0, shutter_t1);
-
-    return scene{ objects, cam };
-}
-
-scene earth() {
-
-    // setup camera
-    vec3 cam_pos = { 11, 2.2f, 2.5f };
-    vec3 lookat = { 2.8f, 0.5f, 1.2f };
-    vec3 up = { 0, 1, 0 };
-    float vfov = 27.0f;
-    float aspect = G_bufferWidth / (float) G_bufferHeight;
-    float aperture = 0.09f;
-    float focus_dist = (cam_pos - lookat).length();
-    float shutter_t0 = 0.0f;
-    float shutter_t1 = 1.0f;
-
-    camera *cam = new camera(cam_pos, lookat, up, vfov, aspect, aperture, focus_dist, shutter_t0, shutter_t1);
-
-    // setup scene objects
-    int width, height, channels;
-    uint8 *pixels = stbi_load("../earthmap.jpg", &width, &height, &channels, 3);
-    if (!pixels) DebugBreak();
-
-    material *mat = new lambertian(new image_tex(pixels, width, height));
-
-    scene_object **list = new scene_object*[3];
-    list[0] = new sphere(vec3(0, -1001, 0), 1000, new lambertian(new perlin_tex(1.0f)));
-    list[1] = new sphere(vec3(0, 1, 0), 2, mat);
-    list[2] = new sphere(vec3(0.5f, -0.5f, 2), 0.5f, mat);
-
-    scene_object *objects = new object_list(list, 3, shutter_t0, shutter_t1);
-
-    return scene{ objects, cam };
-}
-
-scene cornell_box() {
-
-    // setup camera
-    vec3 cam_pos = { 278, 278, -800 };
-    vec3 lookat = { 278, 278, 200 };
-    vec3 up = { 0, 1, 0 };
-    float vfov = 40.0f;
-    float aspect = G_bufferWidth / (float) G_bufferHeight;
-    float aperture = 50.00f;
-    float focus_dist = (cam_pos - lookat).length();
-    float shutter_t0 = 0.0f;
-    float shutter_t1 = 1.0f;
-
-    camera *cam = new camera(cam_pos, lookat, up, vfov, aspect, aperture, focus_dist, shutter_t0, shutter_t1);
-
-    // setup scene objects
-    int n = 6;
-    scene_object **list = new scene_object*[n];
-    int i = 0;
-
-    material *red = new lambertian(new uni_color_tex(vec3(0.65f, 0.05f, 0.05f)));
-    material *white = new lambertian(new uni_color_tex(vec3(0.73f, 0.73f, 0.73f)));
-    material *green = new lambertian(new uni_color_tex(vec3(0.12f, 0.45f, 0.15f)));
-    material *light = new diffuse_light(new uni_color_tex(vec3(5.0f, 5.0f, 5.0f)));
-
-    list[i++] = new yz_rect(555, 0, 0, 555, 555, green);
-    list[i++] = new yz_rect(0, 555, 0, 555, 0, red);
- //   list[i++] = new xz_rect(343, 213, 227, 332, 554, light); // smaller light, needs A LOT more samples without bias
-    list[i++] = new xz_rect(443, 113, 127, 432, 554, light);
-    list[i++] = new xz_rect(555, 0, 0, 555, 555, white);
-    list[i++] = new xz_rect(0, 555, 0, 555, 0, white);
-    list[i++] = new xy_rect(555, 0, 0, 555, 555, white);
-
-    scene_object *objects = new object_list(list, n, shutter_t0, shutter_t1);
-
-    return scene{ objects, cam };
 }
 
 
@@ -558,13 +363,13 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         r.bottom += y_adjust;
     }
 
-    HWND mainWindow = CreateWindowEx(windowStyleEx, windowClass.lpszClassName, "MiniRayTracer", windowStyle, 0, 0,
+    HWND mainWindow = CreateWindowEx(windowStyleEx, windowClass.lpszClassName, "MiniRayTracer", windowStyle, 5, 35,
                                      (r.right - r.left), (r.bottom - r.top), NULL, NULL, hInstance, 0);
 
     // set stretch mode in case buffer size != window size
     HDC DC = GetDC(mainWindow);      // stretch mode is reset if we release the DC, so we just don't...
-    SetStretchBltMode(DC, HALFTONE); // bicubic-like, blurry. comment out if undesired
-    SetBrushOrgEx(DC, 0, 0, NULL);   // required after setting HALFTONE according to MSDN
+    //SetStretchBltMode(DC, HALFTONE); // bicubic-like, blurry. comment out if undesired
+    //SetBrushOrgEx(DC, 0, 0, NULL);   // required after setting HALFTONE according to MSDN
 
     // tells Windows how to interpret our backbuffer
     BITMAPINFO bmpInfo;
@@ -577,6 +382,10 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
     G_backBuffer = (uint32*) calloc(G_bufferWidth * G_bufferHeight, 4);
 
+    if (G_threadingMode == 1) {
+        G_linearBackBuffer = (vec3*) calloc(G_bufferWidth * G_bufferHeight, sizeof(*G_linearBackBuffer));
+    }
+
     /////////////////////////
     // --- Setup Scene --- //
     /////////////////////////
@@ -587,12 +396,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     LARGE_INTEGER t1_gen;
     QueryPerformanceCounter(&t1_gen);
 
-    //scene scene = random_scene(500);
-    //scene scene = two_spheres();
-    //scene scene = spheres_perlin();
-    //scene scene = earth();
-    //scene scene = random_scene_2(500);
-    scene scene = cornell_box();
+    scene scene = select_scene((scenes)G_sceneSelect);
 
     // stop timer, display in window title
     LARGE_INTEGER t2_gen;
@@ -620,7 +424,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         }
     }
     
-    // multi-threading stuff
+    /////////////////////////////
+    // --- Multi-Threading --- //
+    /////////////////////////////
 
     if (G_numThreads == 0) {
         // ALL YOUR PROCESSOR ARE BELONG TO US!
@@ -631,23 +437,54 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
             G_numThreads = 1;
     }
 
-    // threads can get small packets of work from here
-    work_queue *queue = new work_queue(G_bufferWidth, G_bufferHeight, G_packetSize);
-
     // setup function arguments for the worker threads
-    drawArgs *threadArgs = (drawArgs*) calloc(G_numThreads, sizeof(*threadArgs));
-    for (int i = 0; i < G_numThreads; i++)
-    {
-        // thread arguments are all the same for now
-        threadArgs[i].initstate = 0x1234567890abcdefULL;
-        threadArgs[i].initseq = 0xfedcba0987654321ULL;
-        threadArgs[i].queue = queue;
-        threadArgs[i].scene = scene;
-        threadArgs[i].sample_dist = sample_dist;
-        threadArgs[i].numSamples = numSamples;
-    }
 
-    InterlockedAnd(&G_numTracesDone, 0);
+    typedef unsigned int(_stdcall *thread_fn)(void*);
+    thread_fn thread_fun;
+    void *threadArgs;
+    size_t argSize;
+    
+    int32 totalWork = 0;
+    G_workDoneCounter = (int32*) calloc(G_numThreads, sizeof(int32));
+
+    if (G_threadingMode == 0) {
+        thread_fun = draw;
+        work_queue *queue = new work_queue(G_bufferWidth, G_bufferHeight, G_packetSize, &totalWork);
+        
+        drawArgs *threadArgs_ = (drawArgs*) calloc(G_numThreads, sizeof(drawArgs));
+        for (int i = 0; i < G_numThreads; i++)
+        {
+            // thread arguments are all the same for now
+            threadArgs_[i].initstate = 0x1234567890abcdefULL;
+            threadArgs_[i].initseq = 0xfedcba0987654321ULL;
+            threadArgs_[i].queue = queue;
+            threadArgs_[i].scene = scene;
+            threadArgs_[i].sample_dist = sample_dist;
+            threadArgs_[i].numSamples = numSamples;
+            threadArgs_[i].threadId = i;
+        }
+        threadArgs = (void*) threadArgs_;
+        argSize = sizeof(drawArgs);
+    }
+    else {
+        thread_fun = draw2;
+        work_queue_multi *queue = new work_queue_multi(G_bufferWidth, G_bufferHeight, G_packetSize, G_numThreads, numSamples, &totalWork);
+
+        draw2Args *threadArgs_ = (draw2Args*) calloc(G_numThreads, sizeof(draw2Args));
+        for (int i = 0; i < G_numThreads; i++)
+        {
+            // thread arguments are all the same for now
+            threadArgs_[i].initstate = 0x1234567890abcdefULL;
+            threadArgs_[i].initseq = 0xfedcba0987654321ULL;
+            threadArgs_[i].queue = queue;
+            threadArgs_[i].scene = scene;
+            threadArgs_[i].sample_dist = sample_dist;
+            threadArgs_[i].numSamples = numSamples;
+            threadArgs_[i].threadId = i;
+        }
+        threadArgs = (void*) threadArgs_;
+        argSize = sizeof(draw2Args);
+    }
 
     // start time for ray tracer
     LARGE_INTEGER t1_trace;
@@ -657,10 +494,12 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     HANDLE *threads = (HANDLE*) calloc(G_numThreads, sizeof(*threads));
     for (int i = 0; i < G_numThreads; i++)
     {
-        threads[i] = (HANDLE) _beginthreadex(NULL, 0, &draw, &threadArgs[i], 0, NULL);
+        void* args = (void*) ((uint8*) threadArgs + argSize*i);
+        threads[i] = (HANDLE) _beginthreadex(NULL, 0, thread_fun, args, 0, NULL);
     }
 
-
+    static int32 updateFreq = 60;
+    bool updateWindowTitle = true;
     // main loop, draws current picture in window
     while (G_isRunning) {
 
@@ -670,23 +509,31 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
             DispatchMessage(&msg);
         }
 
-        Sleep(1000 / G_updateFreq);
-        
-        if (G_numTracesDone < G_numThreads) {
-        
+        Sleep(1000 / updateFreq);
+
+        if (updateWindowTitle) {
             // display elapsed time in window title
             LARGE_INTEGER t2_trace;
             QueryPerformanceCounter(&t2_trace);
 
+            int32 work_done = 0;
+            for (int i = 0; i < G_numThreads; i++) {
+                work_done += G_workDoneCounter[i];
+            }
+            float secondsElapsed = float(t2_trace.QuadPart - t1_trace.QuadPart) / freq.QuadPart;
+            float pctDone = (100.0f * work_done) / totalWork;
+            float ETA = secondsElapsed * (100 / pctDone) - secondsElapsed;
+
             char frameInfo[128];
-            sprintf_s(frameInfo, 128, "%s - Trace: %.2fs", windowTitle, float(t2_trace.QuadPart - t1_trace.QuadPart) / freq.QuadPart);
+            sprintf_s(frameInfo, 128, "%s - Trace: %.2fs (%.0f%% - ETA %.0fs)", windowTitle, secondsElapsed, pctDone, ETA);
             SetWindowTextA(mainWindow, frameInfo);
-        }
-        else {
-            G_updateFreq = 30;
-        }
 
-
+            if (G_numTracesDone == G_numThreads) { // ray tracer is done!
+                updateWindowTitle = false;
+                updateFreq = 30;
+            }
+        }
+        
         // draw current backbuffer to window
         StretchDIBits(DC, 0, 0, G_windowWidth, G_windowHeight, 0, 0, G_bufferWidth, G_bufferHeight, G_backBuffer, &bmpInfo, DIB_RGB_COLORS, SRCCOPY);
     }

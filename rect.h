@@ -53,7 +53,7 @@ bool xy_rect::hit(const ray& r, float tmin, float tmax, hit_record *rec) const {
     rec->t = t;
     rec->mat_ptr = mat_ptr;
     rec->p = r.eval(t);
-    rec->n = vec3(0.0f, 0.0f, 1.0f) * normal_multiplier;
+    rec->n = vec3(0.0f, 0.0f, 1.0f) * float(normal_multiplier);
     return true;
 }
 
@@ -109,7 +109,7 @@ bool xz_rect::hit(const ray& r, float tmin, float tmax, hit_record *rec) const {
     rec->t = t;
     rec->mat_ptr = mat_ptr;
     rec->p = r.eval(t);
-    rec->n = vec3(0.0f, 1.0f, 0.0f) * normal_multiplier;
+    rec->n = vec3(0.0f, 1.0f, 0.0f) * float(normal_multiplier);
     return true;
 }
 
@@ -165,7 +165,7 @@ bool yz_rect::hit(const ray& r, float tmin, float tmax, hit_record *rec) const {
     rec->t = t;
     rec->mat_ptr = mat_ptr;
     rec->p = r.eval(t);
-    rec->n = vec3(1.0f, 0.0f, 0.0f) * normal_multiplier;
+    rec->n = vec3(1.0f, 0.0f, 0.0f) * float(normal_multiplier);
 
     return true;
 }

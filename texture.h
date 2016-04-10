@@ -31,8 +31,8 @@ public:
     checker_tex(texture *t0, texture *t1, float scale) : even(t0), odd(t1), scale(scale) {}
 
     virtual vec3 sample(float u, float v, const vec3& p) const {
-#if 0
-        float sines = sin(10 * p.x) * sin(10 * p.y) * sin(10 * p.z);
+#if 1
+        float sines = sin(scale * p.x) * sin(scale * p.y) * sin(scale * p.z);
         if (sines < 0)
             return odd->sample(u, v, p);
         else
@@ -90,7 +90,7 @@ float perlin_interp(vec3 c[2][2][2], float u, float v, float w) {
         {
             for (int k = 0; k < 2; k++)
             {
-                vec3 weights = uvw - vec3(i, j, k);
+                vec3 weights = uvw - vec3(float(i), float(j), float(k));
                 acc += ((i * u + (1 - i)*(1 - u)) *
                         (j * v + (1 - j)*(1 - v)) *
                         (k * w + (1 - k)*(1 - w)) * dot(c[i][j][k], weights));
@@ -184,10 +184,11 @@ public:
     perlin_tex(float scale) : scale(scale) {}
 
     virtual vec3 sample(float u, float v, const vec3& p) const {
-        //return vec3(1, 1, 1) * 0.5f * (1 + noise.noise(p*scale)));
-        //return vec3(1, 1, 1) * noise.turbulence(p * scale);
+        //return vec3(1, 1, 1) * 0.5f * (1 + noise.noise(p*scale));
+        return vec3(1, 1, 1) * noise.turbulence(p * scale);
         //return vec3(1, 1, 1) * 0.5f * (1 + noise.turbulence(p * scale));
-        return vec3(1, 1, 1)*0.5f*(1 + sin(scale * (p.length() + 10 * noise.turbulence(p))));
+        //return vec3(1, 1, 1)*0.5f*(1 + sin(scale * (p.length() + 10 * noise.turbulence(p))));
+        //return vec3(1, 1, 1)*0.5f*(1 + sin(scale * p.z + 10 * noise.turbulence(p)));
     }
 };
 
