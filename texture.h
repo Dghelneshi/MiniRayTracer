@@ -8,14 +8,14 @@ public:
     virtual vec3 sample(float u, float v, const vec3& p) const = 0;
 };
 
-class uni_color_tex : public texture {
+class color_tex : public texture {
 public:
     vec3 color;
 
-    uni_color_tex() {}
-    uni_color_tex(vec3 c) : color(c) {}
+    color_tex() {}
+    color_tex(vec3 c) : color(c) {}
 
-    virtual vec3 sample(float u, float v, const vec3& p) const {
+    virtual vec3 sample(float u, float v, const vec3& p) const override {
         return color;
     }
 };
@@ -30,7 +30,7 @@ public:
     checker_tex() {}
     checker_tex(texture *t0, texture *t1, float scale) : even(t0), odd(t1), scale(scale) {}
 
-    virtual vec3 sample(float u, float v, const vec3& p) const {
+    virtual vec3 sample(float u, float v, const vec3& p) const override {
 #if 1
         float sines = sin(scale * p.x) * sin(scale * p.y) * sin(scale * p.z);
         if (sines < 0)
@@ -183,7 +183,7 @@ public:
     perlin_tex() : scale(1) {}
     perlin_tex(float scale) : scale(scale) {}
 
-    virtual vec3 sample(float u, float v, const vec3& p) const {
+    virtual vec3 sample(float u, float v, const vec3& p) const override {
         //return vec3(1, 1, 1) * 0.5f * (1 + noise.noise(p*scale));
         return vec3(1, 1, 1) * noise.turbulence(p * scale);
         //return vec3(1, 1, 1) * 0.5f * (1 + noise.turbulence(p * scale));
@@ -203,7 +203,7 @@ public:
     image_tex() {}
     image_tex(uint8 *pixels, int32 width, int32 height) : data(pixels), width(width), height(height) {}
     
-    virtual vec3 sample(float u, float v, const vec3& p) const;
+    virtual vec3 sample(float u, float v, const vec3& p) const override;
 };
 
 vec3 image_tex::sample(float u, float v, const vec3& p) const {

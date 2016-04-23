@@ -12,8 +12,8 @@ public:
     constant_volume(scene_object *boundary, float density, texture *albedo) : boundary(boundary), density(density) {
         phase_function = new isotropic(albedo);
     }
-    virtual bool hit(const ray& r, float tmin, float tmax, hit_record *rec) const;
-    virtual bool bounding_box(aabb *box, float time0, float time1) const {
+    virtual bool hit(const ray& r, float tmin, float tmax, hit_record *rec) const override;
+    virtual bool bounding_box(aabb *box, float time0, float time1) const override {
         return boundary->bounding_box(box, time0, time1);
     }
 };

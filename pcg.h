@@ -70,6 +70,30 @@ inline vec3 random_in_sphere() {
     return random_in_sphere(&G_rng);
 }
 
+vec3 random_cosine_direction(pcg32_random_t *rng) {
+    float r1 = randf(rng);
+    float r2 = randf(rng);
+    float z = sqrt(1 - r2);
+    float phi = 2 * M_PI_F * r1;
+    float x = cos(phi) * 2 * sqrt(r2);
+    float y = sin(phi) * 2 * sqrt(r2);
+    return vec3(x, y, z);
+}
+inline vec3 random_cosine_direction() {
+    return random_cosine_direction(&G_rng);
+}
+
+vec3 random_on_sphere_uniform(pcg32_random_t *rng) {
+    float x = randf(rng) * 2 - 1.0f;
+    float phi = randf(rng) * 2 * M_PI_F;
+    float s = sqrt(1 - x*x);
+    float y = cos(phi) * s;
+    float z = sin(phi) * s;
+    return vec3(x, y, z);
+}
+inline vec3 random_on_sphere_uniform() {
+    return random_on_sphere_uniform(&G_rng);
+}
 
 vec3 random_in_disk(pcg32_random_t *rng) {
     vec3 p;
@@ -81,4 +105,18 @@ vec3 random_in_disk(pcg32_random_t *rng) {
 }
 inline vec3 random_in_disk() {
     return random_in_disk(&G_rng);
+}
+
+
+vec3 random_towards_sphere(float radius, float dist_sq, pcg32_random_t *rng) {
+    float r1 = randf(rng);
+    float r2 = randf(rng);
+    float z = 1 + r2 * (sqrt(1 - radius*radius / dist_sq) - 1);
+    float phi = 2 * M_PI_F * r1;
+    float x = cos(phi) * sqrt(1 - z*z);
+    float y = sin(phi) * sqrt(1 - z*z);
+    return vec3(x, y, z);
+}
+inline vec3 random_towards_sphere(float radius, float dist_sq) {
+    return random_towards_sphere(radius, dist_sq, &G_rng);
 }

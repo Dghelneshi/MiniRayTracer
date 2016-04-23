@@ -36,7 +36,7 @@ public:
             tmin = max(t0, tmin);
             tmax = min(t1, tmax);
 
-            if (tmax <= tmin)
+            if (tmax < tmin)
                 return false;
         }
         return true;

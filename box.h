@@ -10,10 +10,11 @@ public:
 
     box() {}
     box(const vec3& min, const vec3& max, material *mat);
-    virtual bool hit(const ray& r, float tmin, float tmax, hit_record *rec) const {
+
+    virtual bool hit(const ray& r, float tmin, float tmax, hit_record *rec) const override {
         return rect_list->hit(r, tmin, tmax, rec);
     }
-    virtual bool bounding_box(aabb* box, float time0, float time1) const {
+    virtual bool bounding_box(aabb* box, float time0, float time1) const override {
         *box = aabb(min, max);
         return true;
     }

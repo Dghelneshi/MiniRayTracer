@@ -17,7 +17,7 @@ public:
         };
     };
 
-    vec3() {}
+    vec3() = default;
     vec3(float x, float y, float z) { 
         e[0] = x;
         e[1] = y;
@@ -130,26 +130,35 @@ inline vec3 vec3::normalize() {
      return *this;
 }
 
+#define MRT_GAMMA 2.2f
+
 inline vec3 vec3::gamma_correct() {
-    r = sqrt(r); // gamma 2.0, close enough!
-    g = sqrt(g);
-    b = sqrt(b);
+    //r = sqrt(r);
+    //g = sqrt(g);
+    //b = sqrt(b);
+    r = pow(r, 1 / MRT_GAMMA);
+    g = pow(g, 1 / MRT_GAMMA);
+    b = pow(b, 1 / MRT_GAMMA);
     return *this;
 }
 
 inline vec3 gamma_correct(const vec3& c) {
-    return vec3(sqrt(c.r), sqrt(c.g), sqrt(c.b));
+    return vec3(pow(c.r, 1 / MRT_GAMMA), pow(c.g, 1 / MRT_GAMMA), pow(c.b, 1 / MRT_GAMMA));
 }
 
 inline vec3 vec3::inv_gamma_correct() {
-    r *= r;
-    g *= g;
-    b *= b;
+    //r *= r;
+    //g *= g;
+    //b *= b;
+    r = pow(r, MRT_GAMMA);
+    g = pow(g, MRT_GAMMA);
+    b = pow(b, MRT_GAMMA);
     return *this;
 }
 
 inline vec3 inv_gamma_correct(const vec3& c) {
-    return vec3(c.r * c.r, c.g * c.g, c.b * c.b);
+    //return vec3(c.r * c.r, c.g * c.g, c.b * c.b);
+    return vec3(pow(c.r, MRT_GAMMA), pow(c.g, MRT_GAMMA), pow(c.b, MRT_GAMMA));
 }
 
 inline vec3 vmin(const vec3& a, const vec3& b) {

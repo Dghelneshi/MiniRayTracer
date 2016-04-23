@@ -12,8 +12,8 @@ public:
     triangle(const vec3 &a, const vec3 &b, const vec3 &c, material *mat);
     triangle(const vec3 &a, const vec3 &b, const vec3 &c, const vec3& an, const vec3& bn, const vec3& cn, material *mat);
 
-    virtual bool hit(const ray& r, float tmin, float tmax, hit_record *rec) const;
-    virtual bool bounding_box(aabb* box, float time0, float time1) const {
+    virtual bool hit(const ray& r, float tmin, float tmax, hit_record *rec) const override;
+    virtual bool bounding_box(aabb* box, float time0, float time1) const override {
         vec3 a = m;
         vec3 b = m + u;
         vec3 c = m + v;

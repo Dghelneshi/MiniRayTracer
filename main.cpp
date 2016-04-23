@@ -18,47 +18,88 @@
 #include "triangle.h"
 #include "obj_loader.h"
 #include "work_queue.h"
+#include "pdf.h"
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 
-static int32 G_windowWidth = 450;
-static int32 G_windowHeight = 400;
+/* TODO:
+    - fix image being too dark and desaturated! (esp. unbiased)
+    - fix anything specular being way too dark!
+
+    - separation of Win32 code to make porting easier
+    - generalize moving object code (move into base class, add origin for all objects, maybe try pointer to struct member to save space on non-moving objects)
+    - purge STL from this project! (i.e. implement qsort, vector, etc)
+    - consistent naming conventions everywhere
+    - better/any documentation
+    - clean up function names, globals
+    - code in obj_loader.h and scenes.h should be in separate cpp files
+    - try separating out everything except vec3 into cpp files and compare compile & run times
+    - more error checking & user feedback (e.g. obj file not found)
+    - SSE2 as project default? more/better build options?
+    - Ctrl+Shift+F: TODO
+
+    - long-term: rewrite in C99 or "C+" (operator overloading for vec3) as learning exp + compile/run time comparison
+*/
+
+static int32 G_windowWidth = 500;
+static int32 G_windowHeight = 500;
 static int32 G_bufferWidth = G_windowWidth;
 static int32 G_bufferHeight = G_windowHeight;
-static int32 G_samplesPerPixel = 264; // TODO: will be reduced to the next smallest square number until I implement a more robust sample distribution
+static int32 G_samplesPerPixel = 1000; // TODO: will be reduced to the next smallest square number until I implement a more robust sample distribution
 static int32 G_maxBounces = 32;
 static int32 G_numThreads = 0; // 0 == automatic
 static int32 G_packetSize = 32;
 static int32 G_threadingMode = 1;
 static bool G_isRunning = true;
 static bool G_delay = false; // delayed start for recording
-static volatile LONG G_numTracesDone = 0;
 static volatile int32 *G_workDoneCounter;
 static uint32* G_backBuffer;
 static vec3 *G_linearBackBuffer;
 
 #include "scenes.h"
-static int32 G_sceneSelect = SCENE_TRIANGLES;
+static int32 G_sceneSelect = SCENE_CORNELL_BOX;
 
 ////////////////////////////
 //       RAY TRACER       //
 ////////////////////////////
 
-vec3 trace(const ray& r, const scene_object& scene, pcg32_random_t *rng, int32 depth) {
+vec3 trace(const ray& r, const scene_object& scene, scene_object *biased_obj, pcg32_random_t *rng, int32 depth) {
 
-    hit_record rec;
-    if (scene.hit(r, 0.001f, FLT_MAX, &rec)) {
-        ray scattered;
-        vec3 attenuation;
-        vec3 emitted = rec.mat_ptr->sampleEmissive(rec.u, rec.v, rec.p);
-        if ((depth < G_maxBounces) && rec.mat_ptr->scatter(r, rec, &attenuation, rng, &scattered)) {
-            return emitted + attenuation * trace(scattered, scene, rng, depth + 1);
+    hit_record hrec;
+    if (scene.hit(r, 0.001f, FLT_MAX, &hrec)) {
+        scatter_record srec;
+        vec3 emitted = hrec.mat_ptr->sampleEmissive(r, hrec);
+
+        if ((depth < G_maxBounces) && hrec.mat_ptr->scatter(r, hrec, &srec, rng)) {
+
+            if (srec.is_specular) {
+                return emitted + srec.attenuation * trace(srec.specular_ray, scene, biased_obj, rng, depth + 1);
+            }
+            else {
+                ray scattered;
+                float pdf_v;                
+                if (biased_obj) {
+                    object_pdf plight(hrec.p, biased_obj);
+                    mix_pdf p(&plight, srec.pdf);
+                    scattered = ray(hrec.p, p.generate(r.time, rng), r.time);
+                    pdf_v = p.value(scattered.dir, r.time);
+                }
+                else {
+                    scattered = ray(hrec.p, srec.pdf->generate(r.time, rng), r.time);
+                    pdf_v = srec.pdf->value(scattered.dir, r.time);
+                }
+                delete srec.pdf;
+
+                float scatter_pdf = hrec.mat_ptr->scattering_pdf(r, hrec, scattered);
+                vec3 scatter_color = trace(scattered, scene, biased_obj, rng, depth + 1);
+
+                return emitted + srec.attenuation * scatter_pdf * scatter_color / pdf_v;
+            }
         }
         else {
-            return emitted;// vec3(0, 0, 0);
+            return emitted;
         }
     }
-
     else {
         if (G_sceneSelect >= SCENE_CORNELL_BOX)
             return vec3(0, 0, 0);
@@ -67,7 +108,6 @@ vec3 trace(const ray& r, const scene_object& scene, pcg32_random_t *rng, int32 d
             float t = 0.5f * (r.dir.y + 1.0f);
             return (1.0f - t) * vec3(1, 1, 1) + t * vec3(0.5f, 0.7f, 1.0f);
         }
-        
     }
 }
 
@@ -114,7 +154,7 @@ unsigned int __stdcall draw(void * argp) {
 
                     ray r = args.scene.camera->get_ray(u, v, &rng);
 
-                    color += trace(r, *args.scene.objects, &rng, 0);
+                    color += trace(r, *args.scene.objects, args.scene.biased_objects, &rng, 0);
                 }
                 color /= float(args.numSamples);
 
@@ -139,9 +179,10 @@ unsigned int __stdcall draw(void * argp) {
         G_workDoneCounter[args.threadId]++;
     }
 
-    InterlockedIncrement(&G_numTracesDone);
     return 0;
 }
+
+// --- different multi-threading implementation ---
 
 // worker thread arguments
 struct draw2Args {
@@ -164,20 +205,40 @@ unsigned int __stdcall draw2(void * argp) {
     pcg32_random_t rng = {};
     pcg32_srandom_r(&rng, args.initstate, args.initseq);
 
-    int i = 0; // sample counter
-    while (work *work = args.queue->getWork(args.threadId, &i)) // fetch new work from the queue
+    int o = 0; // oversaturated samples
+    int u = 0; // undersaturated samples
+    int n = 0; // NaN samples
+
+    int32 sampleCount = 0;
+    while (work *work = args.queue->getWork(args.threadId, &sampleCount)) // fetch new work from the queue
     {
         for (int32 y = work->yMin; y < work->yMax; y++) {
             for (int32 x = work->xMin; x < work->xMax; x++) {
 
-                float u = (x + args.sample_dist[i].x) / (float) G_bufferWidth;
-                float v = (y + args.sample_dist[i].y) / (float) G_bufferHeight;
+                float u = (x + args.sample_dist[sampleCount].x) / (float) G_bufferWidth;
+                float v = (y + args.sample_dist[sampleCount].y) / (float) G_bufferHeight;
 
                 ray r = args.scene.camera->get_ray(u, v, &rng);
 
-                vec3 color = trace(r, *args.scene.objects, &rng, 0);
+                vec3 color = trace(r, *args.scene.objects, args.scene.biased_objects, &rng, 0);
 
-                if (i > 0) {
+                if (std::isnan(color.r) || std::isnan(color.g) || std::isnan(color.b)) {
+                    n++;
+                    if (sampleCount > 0)
+                        color = G_linearBackBuffer[x + y * G_bufferWidth];
+                    else
+                        color = vec3(0, 0, 0);
+                }
+
+                if (color.r > 1.0f) { color.r = 1.0f; o++; }
+                if (color.g > 1.0f) { color.g = 1.0f; o++; }
+                if (color.b > 1.0f) { color.b = 1.0f; o++; }
+
+                if (color.r < 0) { color.r = 0.0f; u++; }
+                if (color.g < 0) { color.g = 0.0f; u++; }
+                if (color.b < 0) { color.b = 0.0f; u++; }
+
+                if (sampleCount > 0) {
                     /*uint32 icolor = G_backBuffer[x + y * G_bufferWidth];
                     float red   = ((icolor >> 16) & 0xFF) / 255.0f;
                     float green = ((icolor >>  8) & 0xFF) / 255.0f;
@@ -187,19 +248,16 @@ unsigned int __stdcall draw2(void * argp) {
                     old_color.inv_gamma_correct();*/
 
                     vec3 old_color = G_linearBackBuffer[x + y * G_bufferWidth];
-                    color = old_color + (color - old_color) * 1.0f / (i + 1.0f); // iterative average
+                    color = old_color + (color - old_color) * 1.0f / (sampleCount + 1.0f); // iterative average
                 }
                 G_linearBackBuffer[x + y * G_bufferWidth] = color;
-                
+
+
                 color.gamma_correct();
 
-                if (color.r > 1.0f) color.r = 1.0f;
-                if (color.g > 1.0f) color.g = 1.0f;
-                if (color.b > 1.0f) color.b = 1.0f;
-
-                uint32 red = (uint32) (255.99f * color.r);
+                uint32 red   = (uint32) (255.99f * color.r);
                 uint32 green = (uint32) (255.99f * color.g);
-                uint32 blue = (uint32) (255.99f * color.b);
+                uint32 blue  = (uint32) (255.99f * color.b);
 
                 G_backBuffer[x + y * G_bufferWidth] = (red << 16) | (green << 8) | blue;
             }
@@ -210,9 +268,12 @@ unsigned int __stdcall draw2(void * argp) {
         }
         G_workDoneCounter[args.threadId]++;
     }
-    if (i != (args.numSamples - 1)) DebugBreak();
+    if (sampleCount != (args.numSamples - 1)) DebugBreak();
+    
+    char buf[64];
+    sprintf_s(buf, 64, "%i over (%.2f%%)\n%i under\n%i NaN\n", o, 100.0f * o / float(G_workDoneCounter[args.threadId] * G_packetSize * G_packetSize), u, n);
+    OutputDebugStringA(buf);
 
-    InterlockedIncrement(&G_numTracesDone);
     return 0;
 }
 
@@ -409,7 +470,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     QueryPerformanceCounter(&t2_gen);
 
     char windowTitle[64];
-    sprintf_s(windowTitle, 64, "MiniRayTracer - Scene Gen: %.3fs", float(t2_gen.QuadPart - t1_gen.QuadPart) / freq.QuadPart);
+    sprintf_s(windowTitle, 64, "MiniRayTracer - Scene: %.0fms", 1000.f * float(t2_gen.QuadPart - t1_gen.QuadPart) / freq.QuadPart);
     SetWindowTextA(mainWindow, windowTitle);
 
     // setup sample distribution
@@ -547,7 +608,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
             sprintf_s(frameInfo, 128, "%s - Trace: %.2fs (%.0f%% - ETA %.0fs)", windowTitle, secondsElapsed, pctDone, ETA);
             SetWindowTextA(mainWindow, frameInfo);
 
-            if (G_numTracesDone == G_numThreads) { // ray tracer is done!
+            if (work_done == totalWork) { // ray tracer is done!
                 updateWindowTitle = false;
                 updateFreq = 30;
             }

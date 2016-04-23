@@ -4,11 +4,25 @@
 #include "pcg.h"
 #include "math.h" // pow
 #include "texture.h"
+#include "onb.h"
+#include "pdf.h"
+
+struct scatter_record {
+    ray specular_ray;
+    vec3 attenuation;
+    pdf *pdf;
+    bool is_specular;
+};
 
 class material {
 public:
-    virtual bool scatter(const ray& r_in, const hit_record& rec, vec3 *attenuation, pcg32_random_t* rng, ray *scattered) const = 0;
-    virtual vec3 sampleEmissive(float u, float v, const vec3& p) const {
+    virtual bool scatter(const ray& r_in, const hit_record& hrec, scatter_record *srec, pcg32_random_t* rng) const {
+        return false;
+    }
+    virtual float scattering_pdf(const ray& r_in, const hit_record& rec, const ray& scattered) const {
+        return 0;
+    }
+    virtual vec3 sampleEmissive(const ray& r_in, const hit_record& rec) const {
         return vec3(0, 0, 0);
     }
     virtual ~material() {};
@@ -22,10 +36,18 @@ public:
 
     lambertian(texture *albedo) : albedo(albedo) {};
 
-    virtual bool scatter(const ray& r_in, const hit_record& rec, vec3 *attenuation, pcg32_random_t* rng, ray *scattered) const {
-        vec3 target = rec.p + rec.n + random_in_sphere(rng);
-        *scattered = ray(rec.p, target - rec.p);
-        *attenuation = albedo->sample(rec.u, rec.v, rec.p);
+    virtual float scattering_pdf(const ray& r_in, const hit_record& rec, const ray& scattered) const override {
+        float cosine = dot(rec.n, scattered.dir);
+        if (cosine < 0)
+            return 0;
+        else
+            return cosine / M_PI_F;
+    }
+
+    virtual bool scatter(const ray& r_in, const hit_record& hrec, scatter_record *srec, pcg32_random_t* rng) const override {
+        srec->is_specular = false;
+        srec->attenuation = albedo->sample(hrec.u, hrec.v, hrec.p);
+        srec->pdf = new cosine_pdf(hrec.n); // FIXME
         return true;
     }
 };
@@ -37,11 +59,15 @@ public:
     texture *albedo;
 
     isotropic(texture *albedo) : albedo(albedo) {};
+    
+    virtual float scattering_pdf(const ray& r_in, const hit_record& rec, const ray& scattered) const override {
+        return 1 / (2 * M_PI_F);
+    }
 
-    virtual bool scatter(const ray& r_in, const hit_record& rec, vec3 *attenuation, pcg32_random_t* rng, ray *scattered) const {
-        vec3 target = rec.p + random_in_sphere(rng);
-        *scattered = ray(rec.p, target - rec.p);
-        *attenuation = albedo->sample(rec.u, rec.v, rec.p);
+    virtual bool scatter(const ray& r_in, const hit_record& hrec, scatter_record *srec, pcg32_random_t* rng) const override {
+        srec->is_specular = false;
+        srec->attenuation = albedo->sample(hrec.u, hrec.v, hrec.p);
+        srec->pdf = new isotropic_pdf(hrec.n); // FIXME
         return true;
     }
 };
@@ -51,18 +77,24 @@ public:
 
 class metal : public material {
 public:
-    vec3 albedo;
+    texture *albedo;
     float gloss;
 
-    metal(const vec3& albedo, float gloss) : albedo(albedo) {
+    metal(texture* albedo, float gloss) : albedo(albedo) {
         this->gloss = min(gloss, 1);
     }
 
-    virtual bool scatter(const ray& r_in, const hit_record& rec, vec3 *attenuation, pcg32_random_t* rng, ray *scattered) const {
-        vec3 reflected = reflect(r_in.dir, rec.n);
-        *scattered = ray(rec.p, reflected + (1-gloss) * random_in_sphere(rng));
-        *attenuation = albedo;
-        return (dot(scattered->dir, rec.n) > 0);
+    virtual float scattering_pdf(const ray& r_in, const hit_record& rec, const ray& scattered) const override {
+        return 0;
+    }
+    virtual bool scatter(const ray& r_in, const hit_record& hrec, scatter_record *srec, pcg32_random_t* rng) const override {
+
+        vec3 reflected = reflect(r_in.dir, hrec.n);
+        srec->specular_ray = ray(hrec.p, reflected + (1 - gloss) * random_in_sphere(rng), r_in.time);
+        srec->is_specular = true;
+        srec->attenuation = albedo->sample(hrec.u, hrec.v, hrec.p);
+        srec->pdf = nullptr;
+        return true;
     }
 };
 
@@ -83,20 +115,24 @@ public:
     
     dielectric(float ref_index) : ref_index(ref_index) {}
 
-    virtual bool scatter(const ray& r_in, const hit_record& rec, vec3 *attenuation, pcg32_random_t* rng, ray *scattered) const {
-        
-        *attenuation = vec3(1.0f, 1.0f, 1.0f);
+    virtual float scattering_pdf(const ray& r_in, const hit_record& rec, const ray& scattered) const override {
+        return 0;
+    }
+    virtual bool scatter(const ray& r_in, const hit_record& hrec, scatter_record *srec, pcg32_random_t* rng) const override {
+       
+        srec->attenuation = vec3(1.0f, 1.0f, 1.0f);
+        srec->is_specular = true;
         
         vec3 facing_normal;
         float ni_over_nt;
-        float cosI = -dot(r_in.dir, rec.n);
+        float cosI = -dot(r_in.dir, hrec.n);
 
         if (cosI < 0) { // we are inside the volume
-            facing_normal = -rec.n;
+            facing_normal = -hrec.n;
             ni_over_nt = ref_index;
         }
         else {
-            facing_normal = rec.n;
+            facing_normal = hrec.n;
             ni_over_nt = 1.0f / ref_index;
         }
 
@@ -115,15 +151,15 @@ public:
         }
         else {
             // always reflect if not refracted
-            *scattered = ray(rec.p, reflect(r_in.dir, rec.n));
+            srec->specular_ray = ray(hrec.p, reflect(r_in.dir, hrec.n), r_in.time);
             return true;
         }
 
         if (randf(rng) < reflect_prob) {
-            *scattered = ray(rec.p, reflect(r_in.dir, rec.n));
+            srec->specular_ray = ray(hrec.p, reflect(r_in.dir, hrec.n), r_in.time);
         }
         else {
-            *scattered = ray(rec.p, refracted);
+            srec->specular_ray = ray(hrec.p, refracted, r_in.time);
         }
         return true;
     }
@@ -138,11 +174,18 @@ public:
 
     diffuse_light(texture *emissive, float scale = 1.0f) : emissive(emissive), scale(scale) {};
 
-    virtual bool scatter(const ray& r_in, const hit_record& rec, vec3 *attenuation, pcg32_random_t* rng, ray *scattered) const {
+    virtual float scattering_pdf(const ray& r_in, const hit_record& rec, const ray& scattered) const override {
+        return 0;
+    }
+    virtual bool scatter(const ray& r_in, const hit_record& hrec, scatter_record *srec, pcg32_random_t* rng) const override {
         return false;
     }
-    virtual vec3 sampleEmissive(float u, float v, const vec3& p) const {
-        return scale * emissive->sample(u, v, p);
+    virtual vec3 sampleEmissive(const ray& r_in, const hit_record& rec) const override {
+        
+        if (dot(rec.n, r_in.dir) < 0.0f)
+            return scale * emissive->sample(rec.u, rec.v, rec.p);
+        else
+            return vec3(0, 0, 0);
     }
 };
 

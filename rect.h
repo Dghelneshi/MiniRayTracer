@@ -30,8 +30,8 @@ public:
         this->y1 = y1;
     }
 
-    virtual bool hit(const ray& r, float tmin, float tmax, hit_record *rec) const;
-    virtual bool bounding_box(aabb* box, float time0, float time1) const {
+    virtual bool hit(const ray& r, float tmin, float tmax, hit_record *rec) const override;
+    virtual bool bounding_box(aabb* box, float time0, float time1) const override {
         *box = aabb(vec3(x0, y0, z - 0.0001f), vec3(x1, y1, z + 0.0001f)); // assumes x0 < x1, y0 < y1
         return true;
     }
@@ -86,11 +86,13 @@ public:
         this->z1 = z1;
     }
 
-    virtual bool hit(const ray& r, float tmin, float tmax, hit_record *rec) const;
-    virtual bool bounding_box(aabb* box, float time0, float time1) const {
+    virtual bool hit(const ray& r, float tmin, float tmax, hit_record *rec) const override;
+    virtual bool bounding_box(aabb* box, float time0, float time1) const override {
         *box = aabb(vec3(x0, y - 0.0001f, z0), vec3(x1, y + 0.0001f, z1)); // assumes x0 < x1, z0 < z1
         return true;
     }
+    virtual float pdf_value(const vec3& origin, const vec3& dir, float time) const override;
+    virtual vec3 pdf_generate(const vec3& origin, float time, pcg32_random_t *rng) const override;
 };
 
 bool xz_rect::hit(const ray& r, float tmin, float tmax, hit_record *rec) const {
@@ -111,6 +113,23 @@ bool xz_rect::hit(const ray& r, float tmin, float tmax, hit_record *rec) const {
     rec->p = r.eval(t);
     rec->n = vec3(0.0f, 1.0f, 0.0f) * float(normal_multiplier);
     return true;
+}
+
+float xz_rect::pdf_value(const vec3& origin, const vec3& dir, float time) const {
+    hit_record rec;
+    if (this->hit(ray(origin, dir, 0.0f), 0.001f, FLT_MAX, &rec)) {
+        float area = (x1 - x0) * (z1 - z0);
+        float dist_sq = rec.t * rec.t;
+        float cosine = std::abs(dot(dir, rec.n));
+        return dist_sq / (cosine * area);
+    }
+    else
+        return 0;
+}
+
+vec3 xz_rect::pdf_generate(const vec3& origin, float time, pcg32_random_t *rng) const {
+    vec3 rand = vec3(x0 + randf(rng) * (x1 - x0), y, z0 + randf() * (z1 - z0));
+    return rand - origin;
 }
 
 /////////////////////////////////////////
@@ -142,8 +161,8 @@ public:
         this->z1 = z1;
     }
 
-    virtual bool hit(const ray& r, float tmin, float tmax, hit_record *rec) const;
-    virtual bool bounding_box(aabb* box, float time0, float time1) const {
+    virtual bool hit(const ray& r, float tmin, float tmax, hit_record *rec) const override;
+    virtual bool bounding_box(aabb* box, float time0, float time1) const override {
         *box = aabb(vec3(x - 0.0001f, y0, z0), vec3(x + 0.0001f, y1, z1)); // assumes y0 < y1, z0 < z1
         return true;
     }

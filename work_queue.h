@@ -58,6 +58,8 @@ public:
 };
 
 
+// TODO: try implementing a single synchronized worklist like above to prevent threads from lagging behind too much
+// possibly: curWork[id] can be > workCount, calc curLoop[id] by div or looped subtraction
 
 // each thread gets separate work, can loop through each work list multiple times
 class work_queue_multi {

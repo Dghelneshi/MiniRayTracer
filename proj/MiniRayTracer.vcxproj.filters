@@ -21,5 +21,7 @@
     <ClInclude Include="..\volumes.h" />
     <ClInclude Include="..\triangle.h" />
     <ClInclude Include="..\obj_loader.h" />
+    <ClInclude Include="..\onb.h" />
+    <ClInclude Include="..\pdf.h" />
   </ItemGroup>
 </Project>

@@ -17,6 +17,7 @@ enum scenes {
 
 struct scene {
     scene_object *objects;
+    scene_object *biased_objects;
     camera *camera;
 };
 
@@ -74,7 +75,7 @@ scene random_scene(int n) {
     // setup scene objects
     scene_object **list = new scene_object*[n + 6];
 
-    texture *checker = new checker_tex(new uni_color_tex(vec3(0.2f, 0.3f, 0.1f)), new uni_color_tex(vec3(0.9f, 0.9f, 0.9f)), 10.0f);
+    texture *checker = new checker_tex(new color_tex(vec3(0.2f, 0.3f, 0.1f)), new color_tex(vec3(0.9f, 0.9f, 0.9f)), 10.0f);
     list[0] = new sphere(vec3(0, -1000, 0), 1000, new lambertian(checker));
 
     int half_sqrt_n = int(sqrtf(float(n)) * 0.5f);
@@ -92,11 +93,11 @@ scene random_scene(int n) {
                 sphere *sphere;
 
                 if (choose_mat < 0.5f) {
-                    mat = new lambertian(new uni_color_tex(vec3(randf()*randf(), randf()*randf(), randf()*randf())));
+                    mat = new lambertian(new color_tex(vec3(randf()*randf(), randf()*randf(), randf()*randf())));
                     sphere = new class sphere(center, 0.2f, mat, center + vec3{ 0, 0.5f*randf(), 0 }, 0.0f, 1.0f);
                 }
                 else if (choose_mat < 0.9f) {
-                    mat = new metal(0.5f * vec3(1 + randf(), 1 + randf(), 1 + randf()), randf());
+                    mat = new metal(new color_tex(0.5f * vec3(1 + randf(), 1 + randf(), 1 + randf())), randf());
                     sphere = new class sphere(center, 0.2f, mat);
                 }
                 else {
@@ -110,8 +111,8 @@ scene random_scene(int n) {
     }
 
     list[i++] = new sphere(vec3(0, 1, 0), 1.0f, new dielectric(1.5f));
-    list[i++] = new sphere(vec3(-4, 1, 0), 1.0f, new lambertian(new uni_color_tex(vec3(0.4f, 0.2f, 0.1f))));
-    list[i++] = new sphere(vec3(4, 1, 0), 1.0f, new metal(vec3(0.7f, 0.6f, 0.5f), 1.0f));
+    list[i++] = new sphere(vec3(-4, 1, 0), 1.0f, new lambertian(new color_tex(vec3(0.4f, 0.2f, 0.1f))));
+    list[i++] = new sphere(vec3(4, 1, 0), 1.0f, new metal(new color_tex(vec3(0.7f, 0.6f, 0.5f)), 1.0f));
     list[i++] = new sphere(vec3(4, 1, 3), 1.0f, new dielectric(2.4f));
     list[i++] = new sphere(vec3(4, 1, 3), -0.95f, new dielectric(2.4f));
 
@@ -123,8 +124,8 @@ scene random_scene(int n) {
 
     //scene_object *objects = new object_list(list, i, shutter_t0, shutter_t1);
     scene_object *objects = new bvh_node(list, i, shutter_t0, shutter_t1);
-
-    return scene{ objects, cam };
+    
+    return scene{ objects, nullptr, cam };
 }
 
 scene random_scene_2(int n) {
@@ -150,7 +151,7 @@ scene random_scene_2(int n) {
     if (!pixels) DebugBreak();
 
     material *earth = new lambertian(new image_tex(pixels, width, height));
-    material *checker = new lambertian(new checker_tex(new uni_color_tex(vec3(0.2f, 0.3f, 0.1f)), new uni_color_tex(vec3(0.9f, 0.9f, 0.9f)), 10.0f));
+    material *checker = new lambertian(new checker_tex(new color_tex(vec3(0.2f, 0.3f, 0.1f)), new color_tex(vec3(0.9f, 0.9f, 0.9f)), 10.0f));
     material *perlin = new lambertian(new perlin_tex(1.0f));
     material *perlin_small = new lambertian(new perlin_tex(4.0f));
 
@@ -171,12 +172,12 @@ scene random_scene_2(int n) {
                 sphere *sphere;
 
                 if (choose_mat < 0.3f) {
-                    mat = new lambertian(new uni_color_tex(vec3(randf()*randf(), randf()*randf(), randf()*randf())));
+                    mat = new lambertian(new color_tex(vec3(randf()*randf(), randf()*randf(), randf()*randf())));
                     sphere = new class sphere(center, 0.2f, mat, center + vec3{ 0, 0.5f*randf(), 0 }, 0.0f, 1.0f);
                 }
                 else {
                     if (choose_mat < 0.6f) {
-                        mat = new metal(0.5f * vec3(1 + randf(), 1 + randf(), 1 + randf()), randf());
+                        mat = new metal(new color_tex(0.5f * vec3(1 + randf(), 1 + randf(), 1 + randf())), randf());
                     }
                     else if (choose_mat < 0.7f) {
                         mat = new dielectric(1.4f + randf());
@@ -198,13 +199,13 @@ scene random_scene_2(int n) {
 
     list[i++] = new sphere(vec3(0, 1, 0), 1.0f, new dielectric(1.5f));
     list[i++] = new sphere(vec3(-4, 1, 0), 1.0f, checker);
-    list[i++] = new sphere(vec3(4, 1, 0), 1.0f, new metal(vec3(0.7f, 0.6f, 0.5f), 1.0f));
+    list[i++] = new sphere(vec3(4, 1, 0), 1.0f, new metal(new color_tex(vec3(0.7f, 0.6f, 0.5f)), 1.0f));
     list[i++] = new sphere(vec3(4, 1, 3), 1.0f, new dielectric(2.4f));
     list[i++] = new sphere(vec3(4, 1, 3), -0.95f, new dielectric(2.4f));
 
     scene_object *objects = new bvh_node(list, i, shutter_t0, shutter_t1);
 
-    return scene{ objects, cam };
+    return scene{ objects, nullptr, cam };
 }
 
 
@@ -224,7 +225,7 @@ scene two_spheres() {
     camera *cam = new camera(cam_pos, lookat, up, vfov, aspect, aperture, focus_dist, shutter_t0, shutter_t1);
 
     // setup scene objects
-    texture *checker = new checker_tex(new uni_color_tex(vec3(0.2f, 0.3f, 0.1f)), new uni_color_tex(vec3(0.9f, 0.9f, 0.9f)), 10.0f);
+    texture *checker = new checker_tex(new color_tex(vec3(0.2f, 0.3f, 0.1f)), new color_tex(vec3(0.9f, 0.9f, 0.9f)), 10.0f);
 
     scene_object **list = new scene_object*[2];
     list[0] = new sphere(vec3(0, -10, 0), 10, new lambertian(checker));
@@ -232,7 +233,7 @@ scene two_spheres() {
 
     scene_object *objects = new object_list(list, 2, shutter_t0, shutter_t1);
 
-    return scene{ objects, cam };
+    return scene{ objects, nullptr, cam };
 }
 
 scene spheres_perlin() {
@@ -258,7 +259,7 @@ scene spheres_perlin() {
 
     scene_object *objects = new object_list(list, 3, shutter_t0, shutter_t1);
 
-    return scene{ objects, cam };
+    return scene{ objects, nullptr, cam };
 }
 
 scene earth() {
@@ -290,7 +291,7 @@ scene earth() {
 
     scene_object *objects = new object_list(list, 3, shutter_t0, shutter_t1);
 
-    return scene{ objects, cam };
+    return scene{ objects, nullptr, cam };
 }
 
 scene cornell_box() {
@@ -313,24 +314,36 @@ scene cornell_box() {
     scene_object **list = new scene_object*[n];
     int i = 0;
 
-    material *red = new lambertian(new uni_color_tex(vec3(0.65f, 0.05f, 0.05f)));
-    material *white = new lambertian(new uni_color_tex(vec3(0.73f, 0.73f, 0.73f)));
-    material *green = new lambertian(new uni_color_tex(vec3(0.12f, 0.45f, 0.15f)));
-    material *light = new diffuse_light(new uni_color_tex(vec3(5.0f, 5.0f, 5.0f)));
+    material *red = new lambertian(new color_tex(vec3(0.65f, 0.055f, 0.06f)));
+    material *white = new lambertian(new color_tex(vec3(0.73f, 0.73f, 0.73f)));
+    material *green = new lambertian(new color_tex(vec3(0.117f, 0.44f, 0.115f)));
+    material *light = new diffuse_light(new color_tex(vec3(16.86f, 10.76f, 3.7f)));
+    material *lightold = new diffuse_light(new color_tex(vec3(15.f, 15.f, 15.f)));
+
+    material *aluminum = new metal(new color_tex(vec3(0.8f, 0.85f, 0.88f)), 1.0f);
+    material *glass = new dielectric(1.5f);
 
     list[i++] = new yz_rect(555, 0, 0, 555, 555, green);
     list[i++] = new yz_rect(0, 555, 0, 555, 0, red);
-    //list[i++] = new xz_rect(343, 213, 227, 332, 554, light); // smaller light, needs A LOT more samples without bias
-    list[i++] = new xz_rect(443, 113, 127, 432, 554, light);
+    xz_rect *l = new xz_rect(343, 213, 227, 332, 554, lightold);
+    list[i++] = l;
+    //list[i++] = new xz_rect(443, 113, 127, 432, 554, lightold);
     list[i++] = new xz_rect(555, 0, 0, 555, 555, white);
     list[i++] = new xz_rect(0, 555, 0, 555, 0, white);
     list[i++] = new xy_rect(555, 0, 0, 555, 555, white);
-    list[i++] = new translate(new rotate_y(new box(vec3(0, 0, 0), vec3(165, 165, 165), white), -18), vec3(130, 0, 65));
-    list[i++] = new translate(new rotate_y(new box(vec3(0, 0, 0), vec3(165, 330, 165), white), 15), vec3(265, 0, 295));
+    list[i++] = new translate(new rotate_y(new box(vec3(0, 0, 0), vec3(165, 330, 165), aluminum), 15), vec3(265, 0, 295));
+    //list[i++] = new translate(new rotate_y(new box(vec3(0, 0, 0), vec3(165, 165, 165), white), -18), vec3(130, 0, 65));
+    sphere *s = new sphere(vec3(190, 90, 190), 90, glass);
+    list[i++] = s;
 
-    scene_object *objects = new object_list(list, n, shutter_t0, shutter_t1);
+    scene_object *objects = new object_list(list, i, shutter_t0, shutter_t1);
 
-    return scene{ objects, cam };
+    scene_object **b = new scene_object*[2];
+    b[0] = l;
+    b[1] = s;
+    scene_object *biased = new object_list(b, 1, shutter_t0, shutter_t1);
+
+    return scene{ objects, biased, cam };
 }
 
 scene cornell_smoke() {
@@ -353,26 +366,31 @@ scene cornell_smoke() {
     scene_object **list = new scene_object*[n];
     int i = 0;
 
-    material *red = new lambertian(new uni_color_tex(vec3(0.65f, 0.05f, 0.05f)));
-    material *white = new lambertian(new uni_color_tex(vec3(0.73f, 0.73f, 0.73f)));
-    material *green = new lambertian(new uni_color_tex(vec3(0.12f, 0.45f, 0.15f)));
-    material *light = new diffuse_light(new uni_color_tex(vec3(7.0f, 7.0f, 7.0f)));
+    material *red = new lambertian(new color_tex(vec3(0.65f, 0.05f, 0.05f)));
+    material *white = new lambertian(new color_tex(vec3(0.73f, 0.73f, 0.73f)));
+    material *green = new lambertian(new color_tex(vec3(0.12f, 0.45f, 0.15f)));
+    material *light = new diffuse_light(new color_tex(vec3(7.0f, 7.0f, 7.0f)));
 
     list[i++] = new yz_rect(555, 0, 0, 555, 555, green);
     list[i++] = new yz_rect(0, 555, 0, 555, 0, red);
     //list[i++] = new xz_rect(343, 213, 227, 332, 554, light); // smaller light, needs A LOT more samples without bias
-    list[i++] = new xz_rect(443, 113, 127, 432, 554, light);
+    xz_rect *l = new xz_rect(443, 113, 127, 432, 554, light);
+    list[i++] = l;
     list[i++] = new xz_rect(555, 0, 0, 555, 555, white);
     list[i++] = new xz_rect(0, 555, 0, 555, 0, white);
     list[i++] = new xy_rect(555, 0, 0, 555, 555, white);
     scene_object *smoke_box1 = new translate(new rotate_y(new box(vec3(0, 0, 0), vec3(165, 165, 165), white), -18), vec3(130, 0, 65));
     scene_object *smoke_box2 = new translate(new rotate_y(new box(vec3(0, 0, 0), vec3(165, 330, 165), white), 15), vec3(265, 0, 295));
-    list[i++] = new constant_volume(smoke_box1, 0.01f, new uni_color_tex(vec3(1.0f, 1.0f, 1.0f)));
-    list[i++] = new constant_volume(smoke_box2, 0.01f, new uni_color_tex(vec3(0.0f, 0.0f, 0.0f)));
+    list[i++] = new constant_volume(smoke_box1, 0.01f, new color_tex(vec3(1.0f, 1.0f, 1.0f)));
+    list[i++] = new constant_volume(smoke_box2, 0.01f, new color_tex(vec3(0.0f, 0.0f, 0.0f)));
 
     scene_object *objects = new object_list(list, n, shutter_t0, shutter_t1);
 
-    return scene{ objects, cam };
+    scene_object **b = new scene_object*[1];
+    b[0] = l;
+    scene_object *biased = new object_list(b, 1, shutter_t0, shutter_t1);
+
+    return scene{ objects, biased, cam };
 }
 
 scene book2_final() {
@@ -402,10 +420,10 @@ scene book2_final() {
     if (!pixels) DebugBreak();
     
     material *earth = new lambertian(new image_tex(pixels, width, height));
-    material *white = new lambertian(new uni_color_tex(vec3(0.73f, 0.73f, 0.73f)));
-    material *green = new lambertian(new uni_color_tex(vec3(0.48f, 0.83f, 0.53f)));
-    material *light = new diffuse_light(new uni_color_tex(vec3(7, 7, 7)));
-    material *orange = new lambertian(new uni_color_tex(vec3(0.7f, 0.3f, 0.1f)));
+    material *white = new lambertian(new color_tex(vec3(0.73f, 0.73f, 0.73f)));
+    material *green = new lambertian(new color_tex(vec3(0.48f, 0.83f, 0.53f)));
+    material *light = new diffuse_light(new color_tex(vec3(7, 7, 7)));
+    material *orange = new lambertian(new color_tex(vec3(0.7f, 0.3f, 0.1f)));
     material *perlin = new lambertian(new perlin_tex(0.05f));
 
 
@@ -426,21 +444,23 @@ scene book2_final() {
 
     int l = 0;
     list[l++] = new bvh_node(boxlist, b, shutter_t0, shutter_t1); // green boxes
-    list[l++] = new xz_rect(123, 423, 147, 412, 554, light); // light
+    xz_rect *lo = new xz_rect(423, 123, 147, 412, 554, light); // light
+    list[l++] = lo;
     vec3 center(400, 400, 200);
     list[l++] = new sphere(center, 50, orange, center + vec3(30, 0, 0), 0, 1);            // orange-brownish sphere
-    list[l++] = new sphere(vec3(260, 150, 45), 50, new dielectric(1.5f));                 // glass sphere
-    list[l++] = new sphere(vec3(0, 150, 145), 50, new metal(vec3(0.8f, 0.8f, 0.9f), 0.1f));  // silver sphere
+    sphere *gs = new sphere(vec3(260, 150, 45), 50, new dielectric(1.5f));                 // glass sphere
+    list[l++] = gs;
+    list[l++] = new sphere(vec3(0, 150, 145), 50, new metal(new color_tex(vec3(0.8f, 0.8f, 0.9f)), 0.1f));  // silver sphere
     list[l++] = new sphere(vec3(400, 200, 400), 100, earth);                              // earth sphere
     list[l++] = new sphere(vec3(220, 280, 300), 80, perlin);                              // perlin sphere
 
 
     scene_object *volume_boundary = new sphere(vec3(360, 150, 145), 70, new dielectric(1.5f));
     list[l++] = volume_boundary;
-    list[l++] = new constant_volume(volume_boundary, 0.2f, new uni_color_tex(vec3(0.2f, 0.4f, 0.9f))); // blue sphere
+    list[l++] = new constant_volume(volume_boundary, 0.2f, new color_tex(vec3(0.2f, 0.4f, 0.9f))); // blue sphere
     
     volume_boundary = new sphere(vec3(0, 0, 0), 5000, new dielectric(1.5));
-    list[l++] = new constant_volume(volume_boundary, 0.0001f, new uni_color_tex(vec3(1.0f, 1.0f, 1.0f))); // fog
+    list[l++] = new constant_volume(volume_boundary, 0.0001f, new color_tex(vec3(1.0f, 1.0f, 1.0f))); // fog
 
     // box of white spheres
     for (int i = 0; i < ns; i++) {
@@ -450,7 +470,12 @@ scene book2_final() {
 
     scene_object *objects = new object_list(list, l, shutter_t0, shutter_t1);
 
-    return scene{ objects, cam };
+    scene_object **ba = new scene_object*[2];
+    ba[0] = lo;
+    ba[1] = gs;
+    scene_object *biased = new object_list(ba, 1, shutter_t0, shutter_t1);
+
+    return scene{ objects, biased, cam };
 }
 
 scene triangles() {
@@ -473,17 +498,18 @@ scene triangles() {
     scene_object **list = new scene_object*[n];
     int i = 0;
 
-    material *red = new lambertian(new uni_color_tex(vec3(0.65f, 0.05f, 0.05f)));
-    material *white = new lambertian(new uni_color_tex(vec3(0.73f, 0.73f, 0.73f)));
-    material *green = new lambertian(new uni_color_tex(vec3(0.12f, 0.45f, 0.15f)));
-    material *light = new diffuse_light(new uni_color_tex(vec3(4.0f, 4.0f, 4.0f)));
-    material *silver = new metal(vec3(0.8f, 0.8f, 0.9f), 0.9f);
+    material *red = new lambertian(new color_tex(vec3(0.65f, 0.05f, 0.05f)));
+    material *white = new lambertian(new color_tex(vec3(0.73f, 0.73f, 0.73f)));
+    material *green = new lambertian(new color_tex(vec3(0.12f, 0.45f, 0.15f)));
+    material *light = new diffuse_light(new color_tex(vec3(4.0f, 4.0f, 4.0f)));
+    material *silver = new metal(new color_tex(vec3(0.8f, 0.8f, 0.9f)), 0.9f);
     material *dia = new dielectric(2.4f);
 
     list[i++] = new yz_rect(555, 0, 0, 555, 555, green);
     list[i++] = new yz_rect(0, 555, 0, 555, 0, red);
     //list[i++] = new xz_rect(343, 213, 227, 332, 554, light); // smaller light, needs A LOT more samples without bias
-    list[i++] = new xz_rect(443, 113, 127, 432, 554, light);
+    xz_rect *l = new xz_rect(443, 113, 127, 432, 554, light);
+    list[i++] = l;
     list[i++] = new xz_rect(555, 0, 0, 555, 555, white);
     list[i++] = new xz_rect(0, 555, 0, 555, 0, white);
     list[i++] = new xy_rect(555, 0, 0, 555, 555, silver);
@@ -502,12 +528,6 @@ scene triangles() {
         list[i++] = new rotate_y(new bvh_node(teapot, (int) tris, shutter_t0, shutter_t1), 30);
     }
 
-   /* tris = 0;
-    scene_object **diamond = readObj("..\\obj\\diamond_pruned.obj", green, &tris, true , 1.0f, vec3(280, 70, 100));
-    if (tris && diamond) {
-        list[i++] = new bvh_node(diamond, (int) tris, shutter_t0, shutter_t1);
-    }*/
-
  /*   tris = 0;
     scene_object **spider = readObj("..\\obj\\spider_pruned.obj", dia, &tris, false, 1.3f, vec3(385, 70, 100));
     if (tris && spider) {
@@ -515,6 +535,11 @@ scene triangles() {
     }
     */
     scene_object *objects = new object_list(list, i, shutter_t0, shutter_t1);
+
+    // TODO: use bounding box to generate pdfs for bvh
+    scene_object **ba = new scene_object*[1];
+    ba[0] = l;
+    scene_object *biased = new object_list(ba, 1, shutter_t0, shutter_t1);
     
-    return scene{ objects, cam };
+    return scene{ objects, biased, cam };
 }

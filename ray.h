@@ -11,7 +11,7 @@ public:
 
     ray() {};
     
-    ray(const vec3& origin, const vec3& dir, float time = 0.0) { 
+    ray(const vec3& origin, const vec3& dir, float time) { 
         this->origin = origin;
         this->dir = dir;
         this->dir.normalize();

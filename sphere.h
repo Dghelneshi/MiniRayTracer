@@ -29,8 +29,10 @@ public:
         }
     }
 
-    virtual bool hit(const ray& r, float tmin, float tmax, hit_record *rec) const;
-    virtual bool bounding_box(aabb *box, float t0, float t1) const;
+    virtual bool hit(const ray& r, float tmin, float tmax, hit_record *rec) const override;
+    virtual bool bounding_box(aabb *box, float t0, float t1) const override;
+    virtual float pdf_value(const vec3& origin, const vec3& dir, float time) const override;
+    virtual vec3 pdf_generate(const vec3& origin, float time, pcg32_random_t *rng) const override;
 };
 
 // gets uv for point on unit sphere (i.e. pass in normal for p)
@@ -89,3 +91,20 @@ bool sphere::bounding_box(aabb* box, float t0, float t1) const {
     return true;
 }
 
+float sphere::pdf_value(const vec3& origin, const vec3& dir, float time) const {
+    hit_record rec;
+    if (this->hit(ray(origin, dir, time), 0.001f, FLT_MAX, &rec)) {
+        float cos_theta_max = sqrt(1 - radius * radius / sdot(center(time) - origin));
+        float solid_angle = 2 * M_PI_F * (1 - cos_theta_max);
+        return 1 / solid_angle;
+    }
+    else
+        return 0;
+}
+
+vec3 sphere::pdf_generate(const vec3& origin, float time, pcg32_random_t *rng) const {
+    vec3 dir = center(time) - origin;
+    float dist_sq = sdot(dir);
+    onb uvw(dir);
+    return uvw * random_towards_sphere(radius, dist_sq);
+}

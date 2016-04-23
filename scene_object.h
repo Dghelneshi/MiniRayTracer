@@ -22,6 +22,12 @@ class scene_object {
 public:
     virtual bool hit(const ray& r, float tmin, float tmax, hit_record *rec) const = 0;
     virtual bool bounding_box(aabb* box, float time0, float time1) const = 0;
+    virtual float pdf_value(const vec3& origin, const vec3& dir, float time) const {
+        return 0;
+    }
+    virtual vec3 pdf_generate(const vec3& origin, float time, pcg32_random_t *rng) const {
+        return vec3(1, 0, 0);
+    }
 
     virtual ~scene_object() {}
 };
@@ -41,9 +47,9 @@ public:
     object_list() {}
     object_list(scene_object* l[], int n, float time0, float time1);
 
-    virtual bool hit(const ray& r, float tmin, float tmax, hit_record *rec) const;
+    virtual bool hit(const ray& r, float tmin, float tmax, hit_record *rec) const override;
 
-    virtual bool bounding_box(aabb* b, float time0, float time1) const {
+    virtual bool bounding_box(aabb* b, float time0, float time1) const override {
 
         if (!hasBox) {
             return false;
@@ -52,6 +58,18 @@ public:
             *b = box;
             return true;
         }
+    }
+
+    virtual float pdf_value(const vec3& origin, const vec3& dir, float time) const override {
+        float sum = 0;
+        for (int i = 0; i < count; i++) {
+            sum += list[i]->pdf_value(origin, dir, time);
+        }
+        return sum / count;
+    }
+    virtual vec3 pdf_generate(const vec3& origin, float time, pcg32_random_t *rng) const override {
+        int i = int(randf(rng) * count);
+        return list[i]->pdf_generate(origin, time, rng);
     }
 };
 
@@ -123,11 +141,11 @@ public:
     bvh_node() {}
     bvh_node(scene_object* list[], int n, float time0, float time1);
 
-    virtual bool bounding_box(aabb* b, float time0, float time1) const {
+    virtual bool bounding_box(aabb* b, float time0, float time1) const override {
         *b = box;
         return true;
     }
-    virtual bool hit(const ray& r, float tmin, float tmax, hit_record *rec) const;
+    virtual bool hit(const ray& r, float tmin, float tmax, hit_record *rec) const override;
 };
 
 bool bvh_node::hit(const ray& r, float tmin, float tmax, hit_record *rec) const {
@@ -251,6 +269,8 @@ inline cmp_fn box_compare(int axis) {
 
 bvh_node::bvh_node(scene_object* list[], int n, float time0, float time1) {
 
+    // TODO: build bbox once, then separate into two each recursion without rebuilding the entire thing from scratch (pass new bbox down)
+
     // create temporary list object to get bounding box of all objects (lazy coder at work!)
     object_list ol(list, n, time0, time1);
     ol.bounding_box(&box, time0, time1);
@@ -303,7 +323,7 @@ public:
     vec3 offset;
 
     translate(scene_object *o, const vec3& displacement) : obj(o), offset(displacement) {}
-    virtual bool hit(const ray& r, float tmin, float tmax, hit_record *rec) const {
+    virtual bool hit(const ray& r, float tmin, float tmax, hit_record *rec) const override {
         ray moved_ray(r.origin - offset, r.dir, r.time);
 
         if (obj->hit(moved_ray, tmin, tmax, rec)){
@@ -314,7 +334,7 @@ public:
             return false;
     }
 
-    virtual bool bounding_box(aabb *box, float time0, float time1) const {
+    virtual bool bounding_box(aabb *box, float time0, float time1) const override {
         if (obj->bounding_box(box, time0, time1)) {
             *box = aabb(box->_min + offset, box->_max + offset);
             return true;
@@ -339,8 +359,8 @@ public:
 
     rotate_y(scene_object *o, float angle);
 
-    virtual bool hit(const ray& r, float tmin, float tmax, hit_record *rec) const;
-    virtual bool bounding_box(aabb *box, float time0, float time1) const {
+    virtual bool hit(const ray& r, float tmin, float tmax, hit_record *rec) const override;
+    virtual bool bounding_box(aabb *box, float time0, float time1) const override {
         *box = bbox;
         return hasBox;
     }
