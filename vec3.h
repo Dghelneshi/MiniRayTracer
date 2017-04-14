@@ -23,16 +23,21 @@ public:
         e[1] = y;
         e[2] = z; 
     }
+    vec3(float f) {
+        e[0] = f;
+        e[1] = f;
+        e[2] = f;
+    }
 
     inline vec3 operator-() const { 
         return vec3(-x, -y, -z);
     }
 
-    inline float operator[](int i) const {
+    inline float operator[](size_t i) const {
         return e[i];
     }
 
-    inline float& operator[](int i) {
+    inline float& operator[](size_t i) {
         return e[i];
     }
 
@@ -194,7 +199,7 @@ inline vec3 reflect(const vec3& v, const vec3& n) {
 }
 
 // refracted vector not normalized!
-bool refract(const vec3& v, const vec3& n, float ni_over_nt, vec3* refracted) {
+inline bool refract(const vec3& v, const vec3& n, float ni_over_nt, vec3* refracted) {
     float cosI = -dot(v, n);
     float sinT2 = ni_over_nt * ni_over_nt * (1.0f - cosI*cosI);
     

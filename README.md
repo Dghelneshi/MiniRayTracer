@@ -1,8 +1,8 @@
 # MiniRayTracer
-NOT YET READY FOR PUBLIC CONSUMPTION!
+Code is still pretty ugly, might refactor it some day...
 
-Major code refactor/cleanup incoming after I finish the last book.
-
-Implementation mostly based on Peter Shirley's minibook series:
+Implementation mostly based on Peter Shirley's minibook series:  
 http://in1weekend.com/
-http://www.amazon.com/dp/B01B5AODD8/
+
+Example output images/gifs:  
+https://imgur.com/a/lBOdJ

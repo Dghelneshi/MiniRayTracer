@@ -46,9 +46,9 @@ scene_object **readObj(const char* filename, material *mat, size_t *numTris, boo
             }
             else if (s == 'v') {
 
-                char c = getc(f);
+                s = getc(f);
 
-                if (c == ' ' || c == '\t') { // vertex
+                if (s == ' ' || s == '\t') { // vertex
 
                     if (fscanf_s(f, " %f %f %f ", &x, &y, &z) == 3) {
                         verts.push_back(vec3(x, y, z));
@@ -59,7 +59,7 @@ scene_object **readObj(const char* filename, material *mat, size_t *numTris, boo
                         break;
                     }
                 }
-                else if (c == 'n') { // vertex normal
+                else if (s == 'n') { // vertex normal
 
                     if (fscanf_s(f, " %f %f %f ", &x, &y, &z) == 3) {
                         norms.push_back(vec3(x, y, z));

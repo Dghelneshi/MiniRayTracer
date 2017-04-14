@@ -40,12 +40,11 @@ public:
 class object_list : public scene_object {
 public:
     scene_object **list;
-    int count;
+    size_t count;
     aabb box;
     bool hasBox;
 
-    object_list() {}
-    object_list(scene_object* l[], int n, float time0, float time1);
+    object_list(scene_object* l[], size_t n, float time0, float time1);
 
     virtual bool hit(const ray& r, float tmin, float tmax, hit_record *rec) const override;
 
@@ -62,7 +61,7 @@ public:
 
     virtual float pdf_value(const vec3& origin, const vec3& dir, float time) const override {
         float sum = 0;
-        for (int i = 0; i < count; i++) {
+        for (size_t i = 0; i < count; i++) {
             sum += list[i]->pdf_value(origin, dir, time);
         }
         return sum / count;
@@ -80,7 +79,7 @@ bool object_list::hit(const ray& r, float tmin, float tmax, hit_record *rec) con
         bool hit = false;
         float closest = tmax;
 
-        for (int i = 0; i < count; i++) {
+        for (size_t i = 0; i < count; i++) {
 
             if (list[i]->hit(r, tmin, closest, &cur_rec)) {
                 hit = true;
@@ -97,7 +96,7 @@ bool object_list::hit(const ray& r, float tmin, float tmax, hit_record *rec) con
 
 }
 
-object_list::object_list(scene_object* l[], int n, float time0, float time1) {
+object_list::object_list(scene_object* l[], size_t n, float time0, float time1) {
 
     list = l;
     count = n;
@@ -105,7 +104,7 @@ object_list::object_list(scene_object* l[], int n, float time0, float time1) {
     vec3 minbb(FLT_MAX, FLT_MAX, FLT_MAX);
     vec3 maxbb(-FLT_MAX, -FLT_MAX, -FLT_MAX);
 
-    for (int i = 0; i < count; i++)
+    for (size_t i = 0; i < count; i++)
     {
         aabb curbox;
         bool cur_hasBox = list[i]->bounding_box(&curbox, time0, time1);
@@ -138,7 +137,6 @@ public:
     scene_object *right;
     aabb box;
     
-    bvh_node() {}
     bvh_node(scene_object* list[], int n, float time0, float time1);
 
     virtual bool bounding_box(aabb* b, float time0, float time1) const override {

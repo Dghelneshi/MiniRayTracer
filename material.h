@@ -23,7 +23,7 @@ public:
         return 0;
     }
     virtual vec3 sampleEmissive(const ray& r_in, const hit_record& rec) const {
-        return vec3(0, 0, 0);
+        return vec3(0.0f);
     }
     virtual ~material() {};
 };
@@ -90,7 +90,7 @@ public:
     virtual bool scatter(const ray& r_in, const hit_record& hrec, scatter_record *srec, pcg32_random_t* rng) const override {
 
         vec3 reflected = reflect(r_in.dir, hrec.n);
-        srec->specular_ray = ray(hrec.p, reflected + (1 - gloss) * random_in_sphere(rng), r_in.time);
+        srec->specular_ray = ray(hrec.p, reflected + (1 - gloss) * random_in_sphere(rng), r_in.time); //TODO: fix direction, could be (0,0,0).
         srec->is_specular = true;
         srec->attenuation = albedo->sample(hrec.u, hrec.v, hrec.p);
         srec->pdf = nullptr;
@@ -103,7 +103,7 @@ public:
 // cosine is cosI for ni < nt, otherwise cosT
 // see https://graphics.stanford.edu/courses/cs148-10-summer/docs/2006--degreve--reflection_refraction.pdf
 //
-float fresnel_schlick(float cosine, float ref_index) {
+inline float fresnel_schlick(float cosine, float ref_index) {
     float r0 = (1 - ref_index) / (1 + ref_index); // r0 will be the same even if we swap ni and nt
     r0 = r0*r0;
     return r0 + (1 - r0) * pow((1 - cosine), 5);
@@ -120,7 +120,7 @@ public:
     }
     virtual bool scatter(const ray& r_in, const hit_record& hrec, scatter_record *srec, pcg32_random_t* rng) const override {
        
-        srec->attenuation = vec3(1.0f, 1.0f, 1.0f);
+        srec->attenuation = vec3(1.0f);
         srec->is_specular = true;
         
         vec3 facing_normal;
@@ -185,7 +185,7 @@ public:
         if (dot(rec.n, r_in.dir) < 0.0f)
             return scale * emissive->sample(rec.u, rec.v, rec.p);
         else
-            return vec3(0, 0, 0);
+            return vec3(0.0f);
     }
 };
 

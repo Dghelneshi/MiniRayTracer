@@ -1,27 +1,27 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
-    <ClCompile Include="..\main.cpp" />
-  </ItemGroup>
-  <ItemGroup>
-    <ClInclude Include="..\vec3.h" />
-    <ClInclude Include="..\ray.h" />
-    <ClInclude Include="..\scene_object.h" />
-    <ClInclude Include="..\sphere.h" />
-    <ClInclude Include="..\pcg.h" />
-    <ClInclude Include="..\camera.h" />
     <ClInclude Include="..\work_queue.h" />
+    <ClInclude Include="..\aabb.h" />
+    <ClInclude Include="..\box.h" />
+    <ClInclude Include="..\camera.h" />
     <ClInclude Include="..\common.h" />
     <ClInclude Include="..\material.h" />
-    <ClInclude Include="..\aabb.h" />
-    <ClInclude Include="..\texture.h" />
-    <ClInclude Include="..\rect.h" />
-    <ClInclude Include="..\box.h" />
-    <ClInclude Include="..\scenes.h" />
-    <ClInclude Include="..\volumes.h" />
-    <ClInclude Include="..\triangle.h" />
     <ClInclude Include="..\obj_loader.h" />
     <ClInclude Include="..\onb.h" />
+    <ClInclude Include="..\pcg.h" />
     <ClInclude Include="..\pdf.h" />
+    <ClInclude Include="..\ray.h" />
+    <ClInclude Include="..\rect.h" />
+    <ClInclude Include="..\scene_object.h" />
+    <ClInclude Include="..\scenes.h" />
+    <ClInclude Include="..\sphere.h" />
+    <ClInclude Include="..\texture.h" />
+    <ClInclude Include="..\triangle.h" />
+    <ClInclude Include="..\vec3.h" />
+    <ClInclude Include="..\volumes.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\main.cpp" />
   </ItemGroup>
 </Project>

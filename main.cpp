@@ -23,22 +23,15 @@
 #include "stb_image.h"
 
 /* TODO:
-    - fix image being too dark and desaturated! (esp. unbiased)
-    - fix anything specular being way too dark!
-
+    - do something to combat the "fireflies"
     - separation of Win32 code to make porting easier
     - generalize moving object code (move into base class, add origin for all objects, maybe try pointer to struct member to save space on non-moving objects)
-    - purge STL from this project! (i.e. implement qsort, vector, etc)
     - consistent naming conventions everywhere
     - better/any documentation
-    - clean up function names, globals
-    - code in obj_loader.h and scenes.h should be in separate cpp files
-    - try separating out everything except vec3 into cpp files and compare compile & run times
+    - clean up function names, eliminate globals
+    - separate into multiple cpp files
     - more error checking & user feedback (e.g. obj file not found)
-    - SSE2 as project default? more/better build options?
     - Ctrl+Shift+F: TODO
-
-    - long-term: rewrite in C99 or "C+" (operator overloading for vec3) as learning exp + compile/run time comparison
 */
 
 static int32 G_windowWidth = 500;
@@ -57,7 +50,7 @@ static uint32* G_backBuffer;
 static vec3 *G_linearBackBuffer;
 
 #include "scenes.h"
-static int32 G_sceneSelect = SCENE_CORNELL_BOX;
+static int32 G_sceneSelect = SCENE_TRIANGLES;
 
 ////////////////////////////
 //       RAY TRACER       //
@@ -73,7 +66,7 @@ vec3 trace(const ray& r, const scene_object& scene, scene_object *biased_obj, pc
         if ((depth < G_maxBounces) && hrec.mat_ptr->scatter(r, hrec, &srec, rng)) {
 
             if (srec.is_specular) {
-                return emitted + srec.attenuation * trace(srec.specular_ray, scene, biased_obj, rng, depth + 1);
+                return srec.attenuation * trace(srec.specular_ray, scene, biased_obj, rng, depth + 1);
             }
             else {
                 ray scattered;
@@ -102,11 +95,11 @@ vec3 trace(const ray& r, const scene_object& scene, scene_object *biased_obj, pc
     }
     else {
         if (G_sceneSelect >= SCENE_CORNELL_BOX)
-            return vec3(0, 0, 0);
+            return vec3(0.0f);
         else {
             // background (sky)
             float t = 0.5f * (r.dir.y + 1.0f);
-            return (1.0f - t) * vec3(1, 1, 1) + t * vec3(0.5f, 0.7f, 1.0f);
+            return (1.0f - t) * vec3(1.0f) + t * vec3(0.5f, 0.7f, 1.0f);
         }
     }
 }
@@ -135,7 +128,6 @@ unsigned int __stdcall draw(void * argp) {
 
     drawArgs args = *(drawArgs*) argp;
 
-    
     pcg32_random_t rng = {};
     pcg32_srandom_r(&rng, args.initstate, args.initseq);
 
@@ -158,11 +150,8 @@ unsigned int __stdcall draw(void * argp) {
                 }
                 color /= float(args.numSamples);
 
+                color = vmin(color, vec3(1.0f));
                 color.gamma_correct();
-
-                if (color.r > 1.0f) color.r = 1.0f;
-                if (color.g > 1.0f) color.g = 1.0f;
-                if (color.b > 1.0f) color.b = 1.0f;
 
                 uint32 red   = (uint32) (255.99f * color.r);
                 uint32 green = (uint32) (255.99f * color.g);
@@ -204,11 +193,7 @@ unsigned int __stdcall draw2(void * argp) {
 
     pcg32_random_t rng = {};
     pcg32_srandom_r(&rng, args.initstate, args.initseq);
-
-    int o = 0; // oversaturated samples
-    int u = 0; // undersaturated samples
-    int n = 0; // NaN samples
-
+    
     int32 sampleCount = 0;
     while (work *work = args.queue->getWork(args.threadId, &sampleCount)) // fetch new work from the queue
     {
@@ -222,37 +207,21 @@ unsigned int __stdcall draw2(void * argp) {
 
                 vec3 color = trace(r, *args.scene.objects, args.scene.biased_objects, &rng, 0);
 
-                if (std::isnan(color.r) || std::isnan(color.g) || std::isnan(color.b)) {
-                    n++;
+                if (!std::isfinite(color.r) || !std::isfinite(color.g) || !std::isfinite(color.b)) {
                     if (sampleCount > 0)
                         color = G_linearBackBuffer[x + y * G_bufferWidth];
                     else
-                        color = vec3(0, 0, 0);
+                        color = vec3(0.0f);
                 }
-
-                if (color.r > 1.0f) { color.r = 1.0f; o++; }
-                if (color.g > 1.0f) { color.g = 1.0f; o++; }
-                if (color.b > 1.0f) { color.b = 1.0f; o++; }
-
-                if (color.r < 0) { color.r = 0.0f; u++; }
-                if (color.g < 0) { color.g = 0.0f; u++; }
-                if (color.b < 0) { color.b = 0.0f; u++; }
-
+              
                 if (sampleCount > 0) {
-                    /*uint32 icolor = G_backBuffer[x + y * G_bufferWidth];
-                    float red   = ((icolor >> 16) & 0xFF) / 255.0f;
-                    float green = ((icolor >>  8) & 0xFF) / 255.0f;
-                    float blue  = ((icolor >>  0) & 0xFF) / 255.0f;
-                    vec3 old_color(red, green, blue);
-
-                    old_color.inv_gamma_correct();*/
-
                     vec3 old_color = G_linearBackBuffer[x + y * G_bufferWidth];
                     color = old_color + (color - old_color) * 1.0f / (sampleCount + 1.0f); // iterative average
                 }
+
                 G_linearBackBuffer[x + y * G_bufferWidth] = color;
 
-
+                color = vmin(color, vec3(1.0f));
                 color.gamma_correct();
 
                 uint32 red   = (uint32) (255.99f * color.r);
@@ -269,10 +238,6 @@ unsigned int __stdcall draw2(void * argp) {
         G_workDoneCounter[args.threadId]++;
     }
     if (sampleCount != (args.numSamples - 1)) DebugBreak();
-    
-    char buf[64];
-    sprintf_s(buf, 64, "%i over (%.2f%%)\n%i under\n%i NaN\n", o, 100.0f * o / float(G_workDoneCounter[args.threadId] * G_packetSize * G_packetSize), u, n);
-    OutputDebugStringA(buf);
 
     return 0;
 }

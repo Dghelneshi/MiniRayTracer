@@ -10,7 +10,7 @@ public:
     material* mat_ptr;
     int normal_multiplier;
 
-    xy_rect() {}
+    xy_rect() = default;
     // x0 > x1 XOR y0 > y1 flips the normal
     xy_rect(float x0, float x1, float y0, float y1, float z, material *mat) : z(z), mat_ptr(mat) {
         
@@ -66,7 +66,7 @@ public:
     material* mat_ptr;
     int normal_multiplier;
 
-    xz_rect() {}
+    xz_rect() = default;
     // x0 > x1 XOR z0 > z1 flips the normal
     xz_rect(float x0, float x1, float z0, float z1, float y, material *mat) : y(y), mat_ptr(mat) {
 
@@ -141,7 +141,7 @@ public:
     material* mat_ptr;
     int normal_multiplier;
 
-    yz_rect() {}
+    yz_rect() = default;
     // y0 > y1 XOR z0 > z1 flips the normal
     yz_rect(float y0, float y1, float z0, float z1, float x, material *mat) : x(x), mat_ptr(mat) {
 

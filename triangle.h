@@ -8,7 +8,6 @@ public:
     vec3 mn, un, vn;
     material *mat_ptr;
     
-    triangle() {}
     triangle(const vec3 &a, const vec3 &b, const vec3 &c, material *mat);
     triangle(const vec3 &a, const vec3 &b, const vec3 &c, const vec3& an, const vec3& bn, const vec3& cn, material *mat);
 

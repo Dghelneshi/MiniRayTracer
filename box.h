@@ -8,7 +8,7 @@ public:
     vec3 min, max;
     object_list *rect_list;
 
-    box() {}
+    box() = default;
     box(const vec3& min, const vec3& max, material *mat);
 
     virtual bool hit(const ray& r, float tmin, float tmax, hit_record *rec) const override {

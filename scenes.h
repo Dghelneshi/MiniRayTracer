@@ -151,7 +151,7 @@ scene random_scene_2(int n) {
     if (!pixels) DebugBreak();
 
     material *earth = new lambertian(new image_tex(pixels, width, height));
-    material *checker = new lambertian(new checker_tex(new color_tex(vec3(0.2f, 0.3f, 0.1f)), new color_tex(vec3(0.9f, 0.9f, 0.9f)), 10.0f));
+    material *checker = new lambertian(new checker_tex(new color_tex(vec3(0.2f, 0.3f, 0.1f)), new color_tex(vec3(0.9f)), 10.0f));
     material *perlin = new lambertian(new perlin_tex(1.0f));
     material *perlin_small = new lambertian(new perlin_tex(4.0f));
 
@@ -225,7 +225,7 @@ scene two_spheres() {
     camera *cam = new camera(cam_pos, lookat, up, vfov, aspect, aperture, focus_dist, shutter_t0, shutter_t1);
 
     // setup scene objects
-    texture *checker = new checker_tex(new color_tex(vec3(0.2f, 0.3f, 0.1f)), new color_tex(vec3(0.9f, 0.9f, 0.9f)), 10.0f);
+    texture *checker = new checker_tex(new color_tex(vec3(0.2f, 0.3f, 0.1f)), new color_tex(vec3(0.9f)), 10.0f);
 
     scene_object **list = new scene_object*[2];
     list[0] = new sphere(vec3(0, -10, 0), 10, new lambertian(checker));
@@ -318,7 +318,7 @@ scene cornell_box() {
     material *white = new lambertian(new color_tex(vec3(0.73f, 0.73f, 0.73f)));
     material *green = new lambertian(new color_tex(vec3(0.117f, 0.44f, 0.115f)));
     material *light = new diffuse_light(new color_tex(vec3(16.86f, 10.76f, 3.7f)));
-    material *lightold = new diffuse_light(new color_tex(vec3(15.f, 15.f, 15.f)));
+    material *lightold = new diffuse_light(new color_tex(vec3(15.f)));
 
     material *aluminum = new metal(new color_tex(vec3(0.8f, 0.85f, 0.88f)), 1.0f);
     material *glass = new dielectric(1.5f);
@@ -331,7 +331,7 @@ scene cornell_box() {
     list[i++] = new xz_rect(555, 0, 0, 555, 555, white);
     list[i++] = new xz_rect(0, 555, 0, 555, 0, white);
     list[i++] = new xy_rect(555, 0, 0, 555, 555, white);
-    list[i++] = new translate(new rotate_y(new box(vec3(0, 0, 0), vec3(165, 330, 165), aluminum), 15), vec3(265, 0, 295));
+    list[i++] = new translate(new rotate_y(new box(vec3(0, 0, 0), vec3(165, 330, 165), white), 15), vec3(265, 0, 295));
     //list[i++] = new translate(new rotate_y(new box(vec3(0, 0, 0), vec3(165, 165, 165), white), -18), vec3(130, 0, 65));
     sphere *s = new sphere(vec3(190, 90, 190), 90, glass);
     list[i++] = s;
@@ -369,7 +369,7 @@ scene cornell_smoke() {
     material *red = new lambertian(new color_tex(vec3(0.65f, 0.05f, 0.05f)));
     material *white = new lambertian(new color_tex(vec3(0.73f, 0.73f, 0.73f)));
     material *green = new lambertian(new color_tex(vec3(0.12f, 0.45f, 0.15f)));
-    material *light = new diffuse_light(new color_tex(vec3(7.0f, 7.0f, 7.0f)));
+    material *light = new diffuse_light(new color_tex(vec3(7.0f)));
 
     list[i++] = new yz_rect(555, 0, 0, 555, 555, green);
     list[i++] = new yz_rect(0, 555, 0, 555, 0, red);
@@ -422,7 +422,7 @@ scene book2_final() {
     material *earth = new lambertian(new image_tex(pixels, width, height));
     material *white = new lambertian(new color_tex(vec3(0.73f, 0.73f, 0.73f)));
     material *green = new lambertian(new color_tex(vec3(0.48f, 0.83f, 0.53f)));
-    material *light = new diffuse_light(new color_tex(vec3(7, 7, 7)));
+    material *light = new diffuse_light(new color_tex(vec3(7.0f)));
     material *orange = new lambertian(new color_tex(vec3(0.7f, 0.3f, 0.1f)));
     material *perlin = new lambertian(new perlin_tex(0.05f));
 
@@ -460,7 +460,7 @@ scene book2_final() {
     list[l++] = new constant_volume(volume_boundary, 0.2f, new color_tex(vec3(0.2f, 0.4f, 0.9f))); // blue sphere
     
     volume_boundary = new sphere(vec3(0, 0, 0), 5000, new dielectric(1.5));
-    list[l++] = new constant_volume(volume_boundary, 0.0001f, new color_tex(vec3(1.0f, 1.0f, 1.0f))); // fog
+    list[l++] = new constant_volume(volume_boundary, 0.0001f, new color_tex(vec3(1.0f))); // fog
 
     // box of white spheres
     for (int i = 0; i < ns; i++) {
@@ -501,7 +501,7 @@ scene triangles() {
     material *red = new lambertian(new color_tex(vec3(0.65f, 0.05f, 0.05f)));
     material *white = new lambertian(new color_tex(vec3(0.73f, 0.73f, 0.73f)));
     material *green = new lambertian(new color_tex(vec3(0.12f, 0.45f, 0.15f)));
-    material *light = new diffuse_light(new color_tex(vec3(4.0f, 4.0f, 4.0f)));
+    material *light = new diffuse_light(new color_tex(vec3(4.0f)));
     material *silver = new metal(new color_tex(vec3(0.8f, 0.8f, 0.9f)), 0.9f);
     material *dia = new dielectric(2.4f);
 

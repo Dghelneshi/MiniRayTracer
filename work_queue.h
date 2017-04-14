@@ -109,7 +109,7 @@ public:
     }
 
     // each thread can loop through its work queue multiple times
-    work* getWork(int32 threadId, int32* curLoop_p) {
+    work* getWork(int32 threadId, int32* curLoop_p) const {
         int32 cur = curWork[threadId];
         
         if (cur == workCount[threadId]) {

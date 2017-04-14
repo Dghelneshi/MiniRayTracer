@@ -13,7 +13,6 @@ public:
     float radius;
     material* mat_ptr;
 
-    sphere() {}
     sphere(vec3 center0, float r, material *mat, vec3 center1 = { 0, 0, 0 }, float t0 = 0.0f, float t1 = 0.0f) : 
         center0(center0), center1(center1), time0(t0), time1(t1), radius(r), mat_ptr(mat) {
         
@@ -36,7 +35,7 @@ public:
 };
 
 // gets uv for point on unit sphere (i.e. pass in normal for p)
-void get_sphere_uv(const vec3& p, float *u, float *v) {
+inline void get_sphere_uv(const vec3& p, float *u, float *v) {
     float phi = atan2(p.z, p.x);
     float theta = asin(p.y);
     *u = 1 - (phi + M_PI_F) / (2 * M_PI_F);

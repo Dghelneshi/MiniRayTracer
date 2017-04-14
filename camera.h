@@ -35,7 +35,7 @@ public:
 
     }
 
-    ray get_ray(float s, float t, pcg32_random_t *rng) {
+    ray get_ray(float s, float t, pcg32_random_t *rng) const {
         vec3 rd = lens_radius * random_in_disk(rng);
         vec3 offset = u * rd.x + v * rd.y;
         float time = time0 + (time1 - time0) * randf(rng);

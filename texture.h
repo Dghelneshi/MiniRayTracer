@@ -6,6 +6,7 @@
 class texture {
 public:
     virtual vec3 sample(float u, float v, const vec3& p) const = 0;
+    virtual ~texture() {}
 };
 
 class color_tex : public texture {
@@ -27,7 +28,6 @@ public:
     texture *odd;
     float scale;
 
-    checker_tex() {}
     checker_tex(texture *t0, texture *t1, float scale) : even(t0), odd(t1), scale(scale) {}
 
     virtual vec3 sample(float u, float v, const vec3& p) const override {
@@ -57,7 +57,7 @@ public:
 //    PERLIN NOISE    //
 ////////////////////////
 
-float trilerp(float c[2][2][2], float u, float v, float w) {
+inline float trilerp(float c[2][2][2], float u, float v, float w) {
     float acc = 0;
     for (int i = 0; i < 2; i++)
     {
@@ -75,7 +75,7 @@ float trilerp(float c[2][2][2], float u, float v, float w) {
 }
 
 
-float perlin_interp(vec3 c[2][2][2], float u, float v, float w) {
+inline float perlin_interp(vec3 c[2][2][2], float u, float v, float w) {
     
     vec3 uvw(u, v, w);
     
@@ -200,7 +200,6 @@ public:
     uint8 *data;
     int width, height;
 
-    image_tex() {}
     image_tex(uint8 *pixels, int32 width, int32 height) : data(pixels), width(width), height(height) {}
     
     virtual vec3 sample(float u, float v, const vec3& p) const override;
