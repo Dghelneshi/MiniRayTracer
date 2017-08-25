@@ -70,6 +70,8 @@ inline vec3 random_in_sphere() {
     return random_in_sphere(&G_rng);
 }
 
+// NOTE: This is not normalized!
+// It probably should be, but the only place we use this is for generating new rays, which normalize in the constructor.
 vec3 random_cosine_direction(pcg32_random_t *rng) {
     float r1 = randf(rng);
     float r2 = randf(rng);

@@ -24,6 +24,7 @@
 
 /* TODO:
     - do something to combat the "fireflies"
+    - HDR / tone mapping support
     - separation of Win32 code to make porting easier
     - generalize moving object code (move into base class, add origin for all objects, maybe try pointer to struct member to save space on non-moving objects)
     - consistent naming conventions everywhere
@@ -38,7 +39,7 @@ static int32 G_windowWidth = 500;
 static int32 G_windowHeight = 500;
 static int32 G_bufferWidth = G_windowWidth;
 static int32 G_bufferHeight = G_windowHeight;
-static int32 G_samplesPerPixel = 1000; // TODO: will be reduced to the next smallest square number until I implement a more robust sample distribution
+static int32 G_samplesPerPixel = 1024; // TODO: will be reduced to the next smallest square number until I implement a more robust sample distribution
 static int32 G_maxBounces = 32;
 static int32 G_numThreads = 0; // 0 == automatic
 static int32 G_packetSize = 32;
@@ -50,7 +51,7 @@ static uint32* G_backBuffer;
 static vec3 *G_linearBackBuffer;
 
 #include "scenes.h"
-static int32 G_sceneSelect = SCENE_TRIANGLES;
+static int32 G_sceneSelect = SCENE_BOOK2_FINAL;
 
 ////////////////////////////
 //       RAY TRACER       //
@@ -439,7 +440,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     SetWindowTextA(mainWindow, windowTitle);
 
     // setup sample distribution
-    int32 sqrt_samples = (int32) sqrt((float) G_samplesPerPixel); // TODO: distribution for non-square numbers
+    // TODO: distribution for non-square numbers
+    //       unbiased distribution that converges earlier: Sobol sequence or others, see http://woo4.me/wootracer/2d-samplers/
+    int32 sqrt_samples = (int32) sqrt((float) G_samplesPerPixel);
     int32 numSamples = sqrt_samples * sqrt_samples;
 
     vec2 *sample_dist = (vec2*) calloc(numSamples, sizeof(*sample_dist));
@@ -487,8 +490,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         for (int i = 0; i < G_numThreads; i++)
         {
             // thread arguments are all the same for now
-            threadArgs_[i].initstate = 0x1234567890abcdefULL;
-            threadArgs_[i].initseq = 0xfedcba0987654321ULL;
+            threadArgs_[i].initstate = (uint64(rand32()) << 32) | rand32();
+            threadArgs_[i].initseq = (uint64(rand32()) << 32) | rand32();
             threadArgs_[i].queue = queue;
             threadArgs_[i].scene = scene;
             threadArgs_[i].sample_dist = sample_dist;
@@ -506,8 +509,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         for (int i = 0; i < G_numThreads; i++)
         {
             // thread arguments are all the same for now
-            threadArgs_[i].initstate = 0x1234567890abcdefULL;
-            threadArgs_[i].initseq = 0xfedcba0987654321ULL;
+            threadArgs_[i].initstate = (uint64(rand32()) << 32) | rand32();
+            threadArgs_[i].initseq = (uint64(rand32()) << 32) | rand32();
             threadArgs_[i].queue = queue;
             threadArgs_[i].scene = scene;
             threadArgs_[i].sample_dist = sample_dist;
