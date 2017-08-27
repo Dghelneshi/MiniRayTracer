@@ -120,7 +120,7 @@ float xz_rect::pdf_value(const vec3& origin, const vec3& dir, float time) const 
     if (this->hit(ray(origin, dir, 0.0f), 0.001f, FLT_MAX, &rec)) {
         float area = (x1 - x0) * (z1 - z0);
         float dist_sq = rec.t * rec.t;
-        float cosine = std::abs(dot(dir, rec.n));
+        float cosine = mrt_abs(dot(dir, rec.n));
         return dist_sq / (cosine * area);
     }
     else

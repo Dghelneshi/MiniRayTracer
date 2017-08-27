@@ -1,3 +1,4 @@
+#define NOMINMAX
 #include <Windows.h>
 #include <process.h>
 #include <stdio.h>
@@ -39,11 +40,11 @@ static int32 G_windowWidth = 500;
 static int32 G_windowHeight = 500;
 static int32 G_bufferWidth = G_windowWidth;
 static int32 G_bufferHeight = G_windowHeight;
-static int32 G_samplesPerPixel = 1024; // TODO: will be reduced to the next smallest square number until I implement a more robust sample distribution
+static int32 G_samplesPerPixel = 32; // TODO: will be reduced to the next smallest square number until I implement a more robust sample distribution
 static int32 G_maxBounces = 32;
-static int32 G_numThreads = 0; // 0 == automatic
+static int32 G_numThreads = 1; // 0 == automatic
 static int32 G_packetSize = 32;
-static int32 G_threadingMode = 1;
+static int32 G_threadingMode = 0;
 static bool G_isRunning = true;
 static bool G_delay = false; // delayed start for recording
 static volatile int32 *G_workDoneCounter;
@@ -51,7 +52,7 @@ static uint32* G_backBuffer;
 static vec3 *G_linearBackBuffer;
 
 #include "scenes.h"
-static int32 G_sceneSelect = SCENE_BOOK2_FINAL;
+static int32 G_sceneSelect = SCENE_TRIANGLES;
 
 ////////////////////////////
 //       RAY TRACER       //
@@ -71,7 +72,7 @@ vec3 trace(const ray& r, const scene_object& scene, scene_object *biased_obj, pc
             }
             else {
                 ray scattered;
-                float pdf_v;                
+                float pdf_v;
                 if (biased_obj) {
                     object_pdf plight(hrec.p, biased_obj);
                     mix_pdf p(&plight, srec.pdf);

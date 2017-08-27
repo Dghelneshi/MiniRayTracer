@@ -110,11 +110,8 @@ object_list::object_list(scene_object* l[], size_t n, float time0, float time1) 
         bool cur_hasBox = list[i]->bounding_box(&curbox, time0, time1);
 
         if (cur_hasBox) {
-            for (int axis = 0; axis < 3; axis++)
-            {
-                minbb[axis] = min(minbb[axis], curbox._min[axis]);
-                maxbb[axis] = max(maxbb[axis], curbox._max[axis]);
-            }
+            minbb = vmin(minbb, curbox._min);
+            maxbb = vmax(maxbb, curbox._max);
         }
         else {
             hasBox = false;
@@ -393,13 +390,8 @@ rotate_y::rotate_y(scene_object *o, float angle) {
                 float newz = cos_theta*z - sin_theta*x;
 
                 vec3 testvec(newx, y, newz);
-                for (int c = 0; c < 3; c++) {
-                    if (testvec[c] > maxbb[c])
-                        maxbb[c] = testvec[c];
-                    if (testvec[c] < minbb[c])
-                        minbb[c] = testvec[c];
-                }
-                
+                minbb = vmin(minbb, testvec);
+                maxbb = vmax(maxbb, testvec);
             }
         }
     }

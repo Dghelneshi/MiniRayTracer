@@ -1,37 +1,40 @@
 #pragma once
 #include <math.h>
+#include <stdint.h>
+#include "mrt_math.h"
 
-class vec3 {
+#define MRT_GAMMA 2.2f
+
+// NOTE: overall, MSVC likes vbroadcastss instructions instead of vshufps or vpermilps, _mm_set_ps1 mitigates this problem somewhat
+
+class alignas(16) vec3 {
 public:
     union {
-        float e[3];
+        float e[4];
         struct {
             float x;
             float y;
             float z;
+            float w;
         };
         struct {
             float r;
             float g;
             float b;
+            float a;
         };
+        __m128 m;
     };
 
     vec3() = default;
-    vec3(float x, float y, float z) { 
-        e[0] = x;
-        e[1] = y;
-        e[2] = z; 
-    }
-    vec3(float f) {
-        e[0] = f;
-        e[1] = f;
-        e[2] = f;
-    }
 
-    inline vec3 operator-() const { 
-        return vec3(-x, -y, -z);
-    }
+    vec3(float x, float y, float z) : 
+        x(x), y(y), z(z), w(0) {}
+
+    vec3(float f) : 
+        x(f), y(f), z(f), w(0) {}
+
+    vec3(__m128 m) : m(m) {}
 
     inline float operator[](size_t i) const {
         return e[i];
@@ -43,28 +46,36 @@ public:
 
     inline float length() const;
     inline float sdot() const;
-    inline vec3 normalize();
-    inline vec3 gamma_correct();
-    inline vec3 inv_gamma_correct();
-    inline vec3 reflect(const vec3& n);
-
+    inline vec3& normalize();
+    inline vec3& gamma_correct();
+    inline vec3& inv_gamma_correct();
+    inline vec3& reflect(const vec3& n);
 };
 
+
+inline vec3 operator-(const vec3& v) {
+    static constexpr m128 signs { 0x80000000u,0x80000000u,0x80000000u,0x80000000u };
+    return _mm_xor_ps(v.m, signs.f128);
+}
+
 inline vec3 operator+(const vec3& v1, const vec3& v2) {
-    return vec3(v1.x + v2.x, v1.y + v2.y, v1.z + v2.z);
+    return _mm_add_ps(v1.m, v2.m);
 }
 inline vec3 operator-(const vec3& v1, const vec3& v2) {
-    return vec3(v1.x - v2.x, v1.y - v2.y, v1.z - v2.z);
+    return _mm_sub_ps(v1.m, v2.m);
 }
 
 inline vec3 operator*(const vec3& v, const float f) {
-    return vec3(v.x * f, v.y * f, v.z * f);
+    __m128 m = _mm_set_ps1(f);
+    return _mm_mul_ps(v.m, m);
 }
 inline vec3 operator*(const float f, const vec3& v) {
-    return vec3(v.x * f, v.y * f, v.z * f);
+    __m128 m = _mm_set_ps1(f);
+    return _mm_mul_ps(v.m, m);
 }
+
 inline vec3 operator/(const vec3& v, const float f) {
-    return vec3(v.x / f, v.y / f, v.z / f);
+    return _mm_div_ps(v.m, _mm_set_ps1(f));
 }
 
 inline vec3& operator+=(vec3 &v1, const vec3& v2) {
@@ -88,10 +99,10 @@ inline vec3& operator/=(vec3 &v1, const float f) {
 // element wise mul and div, mostly for colors
 
 inline vec3 operator*(const vec3& v1, const vec3& v2) {
-    return vec3(v1.r * v2.r, v1.g * v2.g, v1.b * v2.b);
+    return _mm_mul_ps(v1.m, v2.m);
 }
 inline vec3 operator/(const vec3& v1, const vec3& v2) {
-    return vec3(v1.r / v2.r, v1.g / v2.g, v1.b / v2.b);
+    return _mm_div_ps(v1.m, v2.m);
 }
 inline vec3& operator*=(vec3 &v1, const vec3& v2) {
     v1 = v1 * v2;
@@ -105,13 +116,30 @@ inline vec3& operator/=(vec3 &v1, const vec3& v2) {
 ////
 
 inline float dot(const vec3& v1, const vec3& v2) {
-    return v1.x * v2.x + v1.y * v2.y + v1.z * v2.z;
+    return _mm_cvtss_f32(_mm_dp_ps(v1.m, v2.m, 0x71));
 }
 
+// NOTE: intrinsics seem to be worse on micro-benchmarks, but much better in a real run
 inline vec3 cross(const vec3& v1, const vec3& v2) {
+#if 1
+    static constexpr int maskYZX = _MM_SHUFFLE(3, 0, 2, 1); // NOTE: read _MM_SHUFFLE from right to left
+    static constexpr int maskZXY = _MM_SHUFFLE(3, 1, 0, 2);
+
+    return _mm_sub_ps(
+        _mm_mul_ps(
+            _mm_permute_ps(v1.m, maskYZX),
+            _mm_permute_ps(v2.m, maskZXY)
+        ),
+        _mm_mul_ps(
+            _mm_permute_ps(v1.m, maskZXY),
+            _mm_permute_ps(v2.m, maskYZX)
+        )
+    );
+#else
     return vec3(v1.y * v2.z - v1.z * v2.y,
                 v1.z * v2.x - v1.x * v2.z,
                 v1.x * v2.y - v1.y * v2.x);
+#endif
 }
 
 inline float sdot(const vec3& v) {
@@ -123,24 +151,20 @@ inline float vec3::sdot() const {
 }
 
 inline float vec3::length() const {
-     return sqrt(sdot());
+    float f = sdot();
+    return mrt_sqrt(f);
 }
 
 inline vec3 unit_vector(const vec3& v) {
     return v / v.length();
 }
 
-inline vec3 vec3::normalize() {
+inline vec3& vec3::normalize() {
      *this /= this->length();
      return *this;
 }
 
-#define MRT_GAMMA 2.2f
-
-inline vec3 vec3::gamma_correct() {
-    //r = sqrt(r);
-    //g = sqrt(g);
-    //b = sqrt(b);
+inline vec3& vec3::gamma_correct() {
     r = pow(r, 1 / MRT_GAMMA);
     g = pow(g, 1 / MRT_GAMMA);
     b = pow(b, 1 / MRT_GAMMA);
@@ -151,10 +175,7 @@ inline vec3 gamma_correct(const vec3& c) {
     return vec3(pow(c.r, 1 / MRT_GAMMA), pow(c.g, 1 / MRT_GAMMA), pow(c.b, 1 / MRT_GAMMA));
 }
 
-inline vec3 vec3::inv_gamma_correct() {
-    //r *= r;
-    //g *= g;
-    //b *= b;
+inline vec3& vec3::inv_gamma_correct() {
     r = pow(r, MRT_GAMMA);
     g = pow(g, MRT_GAMMA);
     b = pow(b, MRT_GAMMA);
@@ -162,15 +183,11 @@ inline vec3 vec3::inv_gamma_correct() {
 }
 
 inline vec3 inv_gamma_correct(const vec3& c) {
-    //return vec3(c.r * c.r, c.g * c.g, c.b * c.b);
     return vec3(pow(c.r, MRT_GAMMA), pow(c.g, MRT_GAMMA), pow(c.b, MRT_GAMMA));
 }
 
 inline vec3 vmin(const vec3& a, const vec3& b) {
-    float xmin = min(a.x, b.x);
-    float ymin = min(a.y, b.y);
-    float zmin = min(a.z, b.z);
-    return vec3(xmin, ymin, zmin);
+    return _mm_min_ps(a.m, b.m);
 }
 
 inline vec3 vmin(const vec3& a, const vec3& b, const vec3& c) {
@@ -178,34 +195,33 @@ inline vec3 vmin(const vec3& a, const vec3& b, const vec3& c) {
 }
 
 inline vec3 vmax(const vec3& a, const vec3& b) {
-    float xmax = max(a.x, b.x);
-    float ymax = max(a.y, b.y);
-    float zmax = max(a.z, b.z);
-    return vec3(xmax, ymax, zmax);
+    return _mm_max_ps(a.m, b.m);
 }
 
 inline vec3 vmax(const vec3& a, const vec3& b, const vec3& c) {
     return vmax(vmax(a, b), c);
 }
 
-
-inline vec3 vec3::reflect(const vec3& n) {
-    *this = *this - (2 * dot(*this, n) * n);
-    return *this;
+inline vec3 reflect(const vec3& v, const vec3& n) {
+    float dp = 2 * dot(v, n);
+    vec3 a = _mm_set_ps1(dp);
+    return v - (a * n);
 }
 
-inline vec3 reflect(const vec3& v, const vec3& n) {
-    return v - (2 * dot(v, n) * n);
+inline vec3& vec3::reflect(const vec3& n) {
+    *this = ::reflect(*this, n);
+    return *this;
 }
 
 // refracted vector not normalized!
 inline bool refract(const vec3& v, const vec3& n, float ni_over_nt, vec3* refracted) {
-    float cosI = -dot(v, n);
-    float sinT2 = ni_over_nt * ni_over_nt * (1.0f - cosI*cosI);
-    
+    float ncosI = dot(v, n);
+    float sinT2 = (ni_over_nt * ni_over_nt) * (1.0f - ncosI*ncosI);
+
     if (sinT2 <= 1.0f) {
-        float cosT = sqrt(1.0f - sinT2);
-        *refracted = ni_over_nt * v + (ni_over_nt * cosI - cosT) * n;
+        float cosT = mrt_sqrt(1.0f - sinT2);
+        float cosI = -ncosI;
+        *refracted = _mm_set_ps1(ni_over_nt) * v + _mm_set_ps1(ni_over_nt * cosI - cosT) * n;
         return true;
     }
     else { // total inner reflection

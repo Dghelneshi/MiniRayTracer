@@ -77,7 +77,7 @@ bool sphere::hit(const ray& r, float tmin, float tmax, hit_record *rec) const {
 
 bool sphere::bounding_box(aabb* box, float t0, float t1) const {
 
-    float abs_r = std::abs(radius); // negative radius is allowed as hollow sphere, but bounding box must not be reversed as well!
+    float abs_r = mrt_abs(radius); // negative radius is allowed as hollow sphere, but bounding box must not be reversed as well!
 
     vec3 r(abs_r, abs_r, abs_r);
     vec3 c0 = center(t0);

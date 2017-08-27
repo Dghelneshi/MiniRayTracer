@@ -20,6 +20,7 @@
     <ClInclude Include="..\triangle.h" />
     <ClInclude Include="..\vec3.h" />
     <ClInclude Include="..\volumes.h" />
+    <ClInclude Include="..\mrt_math.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\main.cpp" />

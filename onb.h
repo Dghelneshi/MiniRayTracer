@@ -2,6 +2,7 @@
 
 #include "vec3.h"
 #include <cmath>
+#include "mrt_math.h"
 
 
 class onb {
@@ -19,7 +20,7 @@ public:
     onb(const vec3& n) { // builds ONB from w = n
         w = unit_vector(n);
         vec3 a;
-        if (std::abs(w.x) > 0.9f)
+        if (mrt_abs(w.x) > 0.9f)
             a = vec3(0, 1, 0);
         else
             a = vec3(1, 0, 0);

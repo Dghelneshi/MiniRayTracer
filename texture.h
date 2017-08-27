@@ -138,7 +138,7 @@ public:
             weight *= 0.5f;
             p_copy *= 2;
         }
-        return std::abs(acc);
+        return mrt_abs(acc);
     }
 };
 

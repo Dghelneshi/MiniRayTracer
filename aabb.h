@@ -45,8 +45,5 @@ public:
 };
 
 aabb surrounding_box(const aabb& a, const aabb& b) {
-    vec3 minbb(min(a._min.x, b._min.x), min(a._min.y, b._min.y), min(a._min.z, b._min.z));
-    vec3 maxbb(max(a._max.x, b._max.x), max(a._max.y, b._max.y), max(a._max.z, b._max.z));
-
-    return aabb(minbb, maxbb);
+    return aabb(vmin(a._min, b._min), vmax(a._max, b._max));
 }

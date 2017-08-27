@@ -6,6 +6,7 @@
 #include "texture.h"
 #include "onb.h"
 #include "pdf.h"
+#include "mrt_math.h"
 
 struct scatter_record {
     ray specular_ray;
