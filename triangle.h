@@ -74,6 +74,5 @@ bool triangle::hit(const ray& r, float tmin, float tmax, hit_record *rec) const 
     rec->u = uu;
     rec->v = vv;
     rec->mat_ptr = mat_ptr;
-
     return true;
 }

@@ -7,6 +7,9 @@
 
 // NOTE: overall, MSVC likes vbroadcastss instructions instead of vshufps or vpermilps, _mm_set_ps1 mitigates this problem somewhat
 
+// indices for swizzling
+enum sw_idx { X, Y, Z, W };
+
 class alignas(16) vec3 {
 public:
     union {
@@ -49,9 +52,18 @@ public:
     inline vec3& normalize();
     inline vec3& gamma_correct();
     inline vec3& inv_gamma_correct();
-    inline vec3& reflect(const vec3& n);
-};
 
+    // NOTE: swizzling with W can be used to zero out a component
+    template <sw_idx x, sw_idx y, sw_idx z>
+    inline vec3 swizzle() {
+        return _mm_permute_ps(m, _MM_SHUFFLE(3, z, y, x));
+    }
+
+    template <sw_idx x, sw_idx y, sw_idx z, sw_idx w>
+    inline vec3 swizzle() {
+        return _mm_permute_ps(m, _MM_SHUFFLE(w, z, y, x));
+    }
+};
 
 inline vec3 operator-(const vec3& v) {
     static constexpr m128 signs { 0x80000000u,0x80000000u,0x80000000u,0x80000000u };
@@ -155,13 +167,13 @@ inline float vec3::length() const {
     return mrt_sqrt(f);
 }
 
-inline vec3 unit_vector(const vec3& v) {
+inline vec3 normalize(const vec3& v) {
     return v / v.length();
 }
 
 inline vec3& vec3::normalize() {
-     *this /= this->length();
-     return *this;
+    *this /= this->length();
+    return *this;
 }
 
 inline vec3& vec3::gamma_correct() {
@@ -208,10 +220,6 @@ inline vec3 reflect(const vec3& v, const vec3& n) {
     return v - (a * n);
 }
 
-inline vec3& vec3::reflect(const vec3& n) {
-    *this = ::reflect(*this, n);
-    return *this;
-}
 
 // refracted vector not normalized!
 inline bool refract(const vec3& v, const vec3& n, float ni_over_nt, vec3* refracted) {

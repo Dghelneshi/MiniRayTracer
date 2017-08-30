@@ -8,10 +8,22 @@
 #include "pdf.h"
 #include "mrt_math.h"
 
+
+struct alignas(16) pdf_space {
+    // my version of clang doesn't like std::max in constexpr
+#define max2(a,b) ((a) < (b) ? (b) : (a))
+#define max4(a,b,c,d) max2(max2(max2((a),(b)),(c)),(d))
+    static constexpr size_t size = max4(sizeof(cosine_pdf), sizeof(isotropic_pdf), sizeof(object_pdf), sizeof(mix_pdf));
+#undef max2
+#undef max4
+    uint8 p[size];
+};
+
 struct scatter_record {
+    pdf_space pdf_buffer;
+    pdf *pdf;
     ray specular_ray;
     vec3 attenuation;
-    pdf *pdf;
     bool is_specular;
 };
 
@@ -26,7 +38,7 @@ public:
     virtual vec3 sampleEmissive(const ray& r_in, const hit_record& rec) const {
         return vec3(0.0f);
     }
-    virtual ~material() {};
+    virtual ~material() = default;
 };
 
 ////////////// LAMBERTIAN //////////////
@@ -48,7 +60,7 @@ public:
     virtual bool scatter(const ray& r_in, const hit_record& hrec, scatter_record *srec, pcg32_random_t* rng) const override {
         srec->is_specular = false;
         srec->attenuation = albedo->sample(hrec.u, hrec.v, hrec.p);
-        srec->pdf = new cosine_pdf(hrec.n); // FIXME
+        srec->pdf = new (&srec->pdf_buffer) cosine_pdf(hrec.n);
         return true;
     }
 };
@@ -68,7 +80,7 @@ public:
     virtual bool scatter(const ray& r_in, const hit_record& hrec, scatter_record *srec, pcg32_random_t* rng) const override {
         srec->is_specular = false;
         srec->attenuation = albedo->sample(hrec.u, hrec.v, hrec.p);
-        srec->pdf = new isotropic_pdf(hrec.n); // FIXME
+        srec->pdf = new (&srec->pdf_buffer) isotropic_pdf(hrec.n);
         return true;
     }
 };
@@ -82,7 +94,7 @@ public:
     float gloss;
 
     metal(texture* albedo, float gloss) : albedo(albedo) {
-        this->gloss = min(gloss, 1);
+        this->gloss = std::min(gloss, 1.0f);
     }
 
     virtual float scattering_pdf(const ray& r_in, const hit_record& rec, const ray& scattered) const override {

@@ -4,7 +4,6 @@
 #include <cmath>
 #include "mrt_math.h"
 
-
 class onb {
 public:
     union {
@@ -17,13 +16,8 @@ public:
     };
 
     onb() {}
-    onb(const vec3& n) { // builds ONB from w = n
-        w = unit_vector(n);
-        vec3 a;
-        if (mrt_abs(w.x) > 0.9f)
-            a = vec3(0, 1, 0);
-        else
-            a = vec3(1, 0, 0);
+    onb(const vec3& n) : w(n) { // builds ONB from w = n, n is assumed to be normalized!
+        vec3 a = (mrt_abs(w.x) > 0.9f) ? vec3(0, 1, 0) : vec3(1, 0, 0);
         v = cross(w, a).normalize();
         u = cross(w, v);
     }

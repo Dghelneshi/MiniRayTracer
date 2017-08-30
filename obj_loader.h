@@ -4,14 +4,9 @@
 #include "triangle.h"
 #include "stdio.h"
 #include <vector>
-#undef min
-#undef max
 #include <algorithm> // std::swap
-#define min(a,b) (((a) < (b)) ? (a) : (b))
-#define max(a,b) (((a) > (b)) ? (a) : (b))
-#include "windows.h"
 
-#ifdef __clang__
+#ifndef _MSC_VER
 #define fscanf_s fscanf
 #endif
 

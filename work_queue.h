@@ -1,41 +1,43 @@
 #pragma once
 
-#include <Windows.h> // InterlockedIncrement (maybe use std::atomic instead?)
 #include "common.h"
+#include <atomic>
 
 struct work {
-    int32 xMin;
-    int32 xMax;
-    int32 yMin;
-    int32 yMax;
+    uint32 xMin;
+    uint32 xMax;
+    uint32 yMin;
+    uint32 yMax;
 };
 
 class work_queue {
 public:
     work *worklist;
-    int32 workCount;
-    volatile LONG workAllocated = 0;
+    uint32 workCount;
+    std::atomic<uint32> workAllocated;
 
-    work_queue(int32 bufferWidth, int32 bufferHeight, int32 packetSize, int32 *totalWork) {
+    work_queue(uint32 bufferWidth, uint32 bufferHeight, uint32 packetSize, uint32 *totalWork) {
 
-        int32 xCount = (bufferWidth  + (packetSize - 1)) / packetSize;
-        int32 yCount = (bufferHeight + (packetSize - 1)) / packetSize;
+        workAllocated = 0;
+
+        uint32 xCount = (bufferWidth  + (packetSize - 1u)) / packetSize;
+        uint32 yCount = (bufferHeight + (packetSize - 1u)) / packetSize;
 
         workCount = (xCount * yCount);
         *totalWork = workCount;
 
         worklist = (work*) malloc(sizeof(*worklist) * workCount);
 
-        for (int y = 0; y < yCount; y++)
+        for (uint32 y = 0; y < yCount; y++)
         {
-            for (int x = 0; x < xCount; x++)
+            for (uint32 x = 0; x < xCount; x++)
             {
                 // last packet in each row and column can be smaller than packetSize
 
-                int32 xMin = x * packetSize;
-                int32 xMax = min(xMin + packetSize, bufferWidth);
-                int32 yMin = y * packetSize;
-                int32 yMax = min(yMin + packetSize, bufferHeight);
+                uint32 xMin = x * packetSize;
+                uint32 xMax = std::min(xMin + packetSize, bufferWidth);
+                uint32 yMin = y * packetSize;
+                uint32 yMax = std::min(yMin + packetSize, bufferHeight);
 
                 worklist[x + y * xCount] = { xMin, xMax, yMin, yMax };
             }
@@ -43,7 +45,7 @@ public:
     }
 
     work* getWork() {
-        int32 cur = InterlockedIncrement(&workAllocated) - 1;
+        uint32 cur = workAllocated++;
         
         if (cur >= workCount)
             return nullptr;
@@ -65,36 +67,36 @@ public:
 class work_queue_multi {
 public:
     work **worklist;
-    int32 *workCount;
-    int32 *curWork;
-    int32 *curLoop;
-    int32 numThreads;
-    int32 maxLoops;
+    uint32 *workCount;
+    uint32 *curWork;
+    uint32 *curLoop;
+    uint32 numThreads;
+    uint32 maxLoops;
 
-    work_queue_multi(int32 bufferWidth, int32 bufferHeight, int32 packetSize, int32 numThreads, int32 maxLoops, int32 *totalWork) : numThreads(numThreads), maxLoops(maxLoops) {
+    work_queue_multi(uint32 bufferWidth, uint32 bufferHeight, uint32 packetSize, uint32 numThreads, uint32 maxLoops, uint32 *totalWork) : numThreads(numThreads), maxLoops(maxLoops) {
 
         worklist  = (work**) calloc(numThreads, sizeof(*worklist));
-        workCount = (int32*) calloc(numThreads, sizeof(*workCount));
-        curWork   = (int32*) calloc(numThreads, sizeof(*curWork));
-        curLoop   = (int32*) calloc(numThreads, sizeof(*curLoop));
+        workCount = (uint32*) calloc(numThreads, sizeof(*workCount));
+        curWork   = (uint32*) calloc(numThreads, sizeof(*curWork));
+        curLoop   = (uint32*) calloc(numThreads, sizeof(*curLoop));
 
-        int32 xCount = (bufferWidth  + (packetSize - 1)) / packetSize;
-        int32 yCount = (bufferHeight + (packetSize - 1)) / packetSize;
+        uint32 xCount = (bufferWidth  + (packetSize - 1u)) / packetSize;
+        uint32 yCount = (bufferHeight + (packetSize - 1u)) / packetSize;
 
-        int32 maxWorkCount = yCount * ((xCount / numThreads) + 1); // maximum possible work amount per thread, for ease of allocation
-        for (int threadId = 0; threadId < numThreads; threadId++) {
+        uint32 maxWorkCount = yCount * ((xCount / numThreads) + 1u); // maximum possible work amount per thread, for ease of allocation
+        for (uint32 threadId = 0; threadId < numThreads; threadId++) {
             worklist[threadId] = (work*) calloc(maxWorkCount, sizeof(**worklist));
         }
 
-        int threadId = 0;
-        for (int y = 0; y < yCount; y++)
+        uint32 threadId = 0;
+        for (uint32 y = 0; y < yCount; y++)
         {
-            for (int x = 0; x < xCount; x++)
+            for (uint32 x = 0; x < xCount; x++)
             {
-                int32 xMin = x * packetSize;
-                int32 xMax = min(xMin + packetSize, bufferWidth);
-                int32 yMin = y * packetSize;
-                int32 yMax = min(yMin + packetSize, bufferHeight);
+                uint32 xMin = x * packetSize;
+                uint32 xMax = std::min(xMin + packetSize, bufferWidth);
+                uint32 yMin = y * packetSize;
+                uint32 yMax = std::min(yMin + packetSize, bufferHeight);
 
                 worklist[threadId][workCount[threadId]] = { xMin, xMax, yMin, yMax };
 
@@ -109,8 +111,8 @@ public:
     }
 
     // each thread can loop through its work queue multiple times
-    work* getWork(int32 threadId, int32* curLoop_p) const {
-        int32 cur = curWork[threadId];
+    work* getWork(uint32 threadId, uint32* curLoop_p) const {
+        uint32 cur = curWork[threadId];
         
         if (cur == workCount[threadId]) {
             if (curLoop[threadId] == (maxLoops - 1))
@@ -127,7 +129,7 @@ public:
     }
 
     ~work_queue_multi() {
-        for (int threadId = 0; threadId < numThreads; threadId++) {
+        for (uint32 threadId = 0; threadId < numThreads; threadId++) {
             free(worklist[threadId]);
         }
         free(worklist);

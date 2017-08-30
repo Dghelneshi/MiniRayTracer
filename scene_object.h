@@ -178,7 +178,7 @@ bool bvh_node::hit(const ray& r, float tmin, float tmax, hit_record *rec) const 
 
 
 // couldn't figure out if there's a way to do this with macros/templates/something else instead of copy/paste
-int box_compare_x(const void *a, const void *b) {
+int __cdecl box_compare_x(const void *a, const void *b) {
     
     aabb box_left, box_right;
     scene_object *a_obj = *(scene_object**) a;
@@ -200,7 +200,7 @@ int box_compare_x(const void *a, const void *b) {
     }
 }
 
-int box_compare_y(const void *a, const void *b) {
+int __cdecl box_compare_y(const void *a, const void *b) {
 
     aabb box_left, box_right;
     scene_object *a_obj = *(scene_object**) a;
@@ -222,7 +222,7 @@ int box_compare_y(const void *a, const void *b) {
     }
 }
 
-int box_compare_z(const void *a, const void *b) {
+int __cdecl box_compare_z(const void *a, const void *b) {
 
     aabb box_left, box_right;
     scene_object *a_obj = *(scene_object**) a;
@@ -244,7 +244,7 @@ int box_compare_z(const void *a, const void *b) {
     }
 }
 
-typedef int (*cmp_fn)(const void *a, const void *b);
+typedef int (__cdecl *cmp_fn)(const void *a, const void *b);
 
 inline cmp_fn box_compare(int axis) {
 

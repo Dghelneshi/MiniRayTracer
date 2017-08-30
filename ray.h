@@ -13,8 +13,7 @@ public:
     
     ray(const vec3& origin, const vec3& dir, float time) { 
         this->origin = origin;
-        this->dir = dir;
-        this->dir.normalize();
+        this->dir = normalize(dir);
         this->time = time;
     }
 

@@ -5,12 +5,13 @@
 #include "common.h"
 #include "pcg.h"
 
+
 class pdf {
 public:
     virtual float value(const vec3& dir, float time) const = 0;
     virtual vec3 generate(float time, pcg32_random_t *rng) const = 0;
 
-    virtual ~pdf() {};
+    virtual ~pdf() = default;
 };
 
 class cosine_pdf : public pdf {
@@ -18,7 +19,7 @@ public:
     onb uvw;
 
     cosine_pdf(const vec3& n) : uvw(n) {}
-    
+
     virtual float value(const vec3& dir, float time) const override {
         float cosine = dot(dir, uvw.w);
         if (cosine > 0)
@@ -30,6 +31,8 @@ public:
         return uvw * random_cosine_direction(rng);
     }
 };
+
+
 
 class isotropic_pdf : public pdf {
 public:

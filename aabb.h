@@ -3,11 +3,7 @@
 #include "common.h"
 #include "vec3.h"
 #include "ray.h"
-#undef min
-#undef max
 #include <algorithm> // std::swap
-#define min(a,b) (((a) < (b)) ? (a) : (b))
-#define max(a,b) (((a) > (b)) ? (a) : (b))
 
 
 class aabb {
@@ -33,8 +29,8 @@ public:
                 std::swap(t0, t1);
             }
 
-            tmin = max(t0, tmin);
-            tmax = min(t1, tmax);
+            tmin = std::max(t0, tmin);
+            tmax = std::min(t1, tmax);
 
             if (tmax < tmin)
                 return false;

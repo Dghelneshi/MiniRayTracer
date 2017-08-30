@@ -23,6 +23,7 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 
+
 /* TODO:
     - do something to combat the "fireflies"
     - HDR / tone mapping support
@@ -36,29 +37,29 @@
     - Ctrl+Shift+F: TODO
 */
 
-static int32 G_windowWidth = 500;
-static int32 G_windowHeight = 500;
-static int32 G_bufferWidth = G_windowWidth;
-static int32 G_bufferHeight = G_windowHeight;
-static int32 G_samplesPerPixel = 32; // TODO: will be reduced to the next smallest square number until I implement a more robust sample distribution
-static int32 G_maxBounces = 32;
-static int32 G_numThreads = 1; // 0 == automatic
-static int32 G_packetSize = 32;
-static int32 G_threadingMode = 0;
+static uint32 G_windowWidth = 500;
+static uint32 G_windowHeight = 500;
+static uint32 G_bufferWidth = G_windowWidth;
+static uint32 G_bufferHeight = G_windowHeight;
+static uint32 G_samplesPerPixel = 32; // TODO: will be reduced to the next smallest square number until I implement a more robust sample distribution
+static uint32 G_maxBounces = 32;
+static uint32 G_numThreads = 1; // 0 == automatic
+static uint32 G_packetSize = 32;
+static uint32 G_threadingMode = 0;
 static bool G_isRunning = true;
 static bool G_delay = false; // delayed start for recording
-static volatile int32 *G_workDoneCounter;
+static volatile uint32 *G_workDoneCounter;
 static uint32* G_backBuffer;
 static vec3 *G_linearBackBuffer;
 
 #include "scenes.h"
-static int32 G_sceneSelect = SCENE_TRIANGLES;
+static uint32 G_sceneSelect = SCENE_TRIANGLES;
 
 ////////////////////////////
 //       RAY TRACER       //
 ////////////////////////////
 
-vec3 trace(const ray& r, const scene_object& scene, scene_object *biased_obj, pcg32_random_t *rng, int32 depth) {
+vec3 trace(const ray& r, const scene_object& scene, scene_object *biased_obj, pcg32_random_t *rng, uint32 depth) {
 
     hit_record hrec;
     if (scene.hit(r, 0.001f, FLT_MAX, &hrec)) {
@@ -83,7 +84,7 @@ vec3 trace(const ray& r, const scene_object& scene, scene_object *biased_obj, pc
                     scattered = ray(hrec.p, srec.pdf->generate(r.time, rng), r.time);
                     pdf_v = srec.pdf->value(scattered.dir, r.time);
                 }
-                delete srec.pdf;
+                //delete srec.pdf; // NOTE: currently using placement new into a buffer inside scatter_record
 
                 float scatter_pdf = hrec.mat_ptr->scattering_pdf(r, hrec, scattered);
                 vec3 scatter_color = trace(scattered, scene, biased_obj, rng, depth + 1);
@@ -119,8 +120,8 @@ struct drawArgs {
     work_queue* queue;
     scene scene;
     vec2 *sample_dist; // array of sample offsets
-    int32 numSamples;
-    int32 threadId;
+    uint32 numSamples;
+    uint32 threadId;
 };
 
 // main worker thread function
@@ -135,13 +136,13 @@ unsigned int __stdcall draw(void * argp) {
 
     while (work *work = args.queue->getWork()) // fetch new work from the queue
     {
-        for (int32 y = work->yMin; y < work->yMax; y++) {
-            for (int32 x = work->xMin; x < work->xMax; x++) {
+        for (uint32 y = work->yMin; y < work->yMax; y++) {
+            for (uint32 x = work->xMin; x < work->xMax; x++) {
 
                 vec3 color(0, 0, 0);
 
                 // multiple samples per pixel
-                for (int i = 0; i < args.numSamples; i++)
+                for (uint32 i = 0; i < args.numSamples; i++)
                 {
                     float u = (x + args.sample_dist[i].x) / (float) G_bufferWidth;
                     float v = (y + args.sample_dist[i].y) / (float) G_bufferHeight;
@@ -182,7 +183,7 @@ struct draw2Args {
     work_queue_multi* queue;
     scene scene;
     vec2 *sample_dist; // array of sample offsets
-    int32 numSamples;
+    uint32 numSamples;
     int32 threadId;
 };
 
@@ -196,11 +197,11 @@ unsigned int __stdcall draw2(void * argp) {
     pcg32_random_t rng = {};
     pcg32_srandom_r(&rng, args.initstate, args.initseq);
     
-    int32 sampleCount = 0;
+    uint32 sampleCount = 0;
     while (work *work = args.queue->getWork(args.threadId, &sampleCount)) // fetch new work from the queue
     {
-        for (int32 y = work->yMin; y < work->yMax; y++) {
-            for (int32 x = work->xMin; x < work->xMax; x++) {
+        for (uint32 y = work->yMin; y < work->yMax; y++) {
+            for (uint32 x = work->xMin; x < work->xMax; x++) {
 
                 float u = (x + args.sample_dist[sampleCount].x) / (float) G_bufferWidth;
                 float v = (y + args.sample_dist[sampleCount].y) / (float) G_bufferHeight;
@@ -287,10 +288,10 @@ void ParseCmdLine(char* lpCmdLine) {
     }
 }
 
-bool ApplyInt32Parameter(const char* string, int32 *target, int32 min = 1, int32 max = INT32_MAX) {
+bool ApplyUInt32Parameter(const char* string, uint32 *target, uint32 min = 1, uint32 max = UINT32_MAX) {
     int index = CheckParm(string);
     if ((index > 0) && (G_argc > (index + 1))) {
-        int32 value = atoi(G_argv[index + 1]);
+        uint32 value = atoi(G_argv[index + 1]);
         if ((value >= min) && (value <= max)) {
             *target = value;
             return true;
@@ -301,16 +302,16 @@ bool ApplyInt32Parameter(const char* string, int32 *target, int32 min = 1, int32
 
 void ApplyCmdLine() {
 
-    if (ApplyInt32Parameter("-width",  &G_windowWidth))
+    if (ApplyUInt32Parameter("-width",  &G_windowWidth))
         G_bufferWidth = G_windowWidth;
-    if (ApplyInt32Parameter("-height", &G_windowHeight))
+    if (ApplyUInt32Parameter("-height", &G_windowHeight))
         G_bufferHeight = G_windowHeight;
-    ApplyInt32Parameter("-samples",    &G_samplesPerPixel);
-    ApplyInt32Parameter("-packetsize", &G_packetSize);
-    ApplyInt32Parameter("-threads",    &G_numThreads, 0);
-    ApplyInt32Parameter("-depth",      &G_maxBounces);
-    ApplyInt32Parameter("-scene",      &G_sceneSelect, 0, ENUM_SCENES_MAX - 1);
-    ApplyInt32Parameter("-mode",       &G_threadingMode, 0, 1);
+    ApplyUInt32Parameter("-samples",    &G_samplesPerPixel);
+    ApplyUInt32Parameter("-packetsize", &G_packetSize);
+    ApplyUInt32Parameter("-threads",    &G_numThreads, 0);
+    ApplyUInt32Parameter("-depth",      &G_maxBounces);
+    ApplyUInt32Parameter("-scene",      &G_sceneSelect, 0, ENUM_SCENES_MAX - 1);
+    ApplyUInt32Parameter("-mode",       &G_threadingMode, 0, 1);
 
     int printHelp = CheckParm("-help") || CheckParm("-?");
     if (printHelp > 0) {
@@ -387,10 +388,10 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     DWORD windowStyleEx = 0;
 
     // adjust window so that drawable area is exactly the size we want
-    RECT r = { 0, 0, G_windowWidth, G_windowHeight };
+    RECT r = { 0, 0, LONG(G_windowWidth), LONG(G_windowHeight) };
     AdjustWindowRectEx(&r, windowStyle, FALSE, windowStyleEx);
 
-    if ((r.right - r.left) == G_windowWidth) { // AdjustWindowRect doesn't seem to work for some window styles
+    if ((r.right - r.left) == LONG(G_windowWidth)) { // AdjustWindowRect doesn't seem to work for some window styles
         int32 x_adjust = GetSystemMetrics(SM_CXFIXEDFRAME) * 2;
         int32 y_adjust = GetSystemMetrics(SM_CYCAPTION) + GetSystemMetrics(SM_CYFIXEDFRAME) * 2;
         r.right += x_adjust;
@@ -480,15 +481,15 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     void *threadArgs;
     size_t argSize;
 
-    int32 totalWork = 0;
-    G_workDoneCounter = (int32*) calloc(G_numThreads, sizeof(int32));
+    uint32 totalWork = 0;
+    G_workDoneCounter = (uint32*) calloc(G_numThreads, sizeof(uint32));
 
     if (G_threadingMode == 0) {
         thread_fun = draw;
         work_queue *queue = new work_queue(G_bufferWidth, G_bufferHeight, G_packetSize, &totalWork);
 
         drawArgs *threadArgs_ = (drawArgs*) calloc(G_numThreads, sizeof(drawArgs));
-        for (int i = 0; i < G_numThreads; i++)
+        for (uint32 i = 0; i < G_numThreads; i++)
         {
             // thread arguments are all the same for now
             threadArgs_[i].initstate = (uint64(rand32()) << 32) | rand32();
@@ -507,7 +508,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         work_queue_multi *queue = new work_queue_multi(G_bufferWidth, G_bufferHeight, G_packetSize, G_numThreads, numSamples, &totalWork);
 
         draw2Args *threadArgs_ = (draw2Args*) calloc(G_numThreads, sizeof(draw2Args));
-        for (int i = 0; i < G_numThreads; i++)
+        for (uint32 i = 0; i < G_numThreads; i++)
         {
             // thread arguments are all the same for now
             threadArgs_[i].initstate = (uint64(rand32()) << 32) | rand32();
@@ -541,7 +542,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
     // start worker threads
     HANDLE *threads = (HANDLE*) calloc(G_numThreads, sizeof(*threads));
-    for (int i = 0; i < G_numThreads; i++)
+    for (uint32 i = 0; i < G_numThreads; i++)
     {
         void* args = (void*) ((uint8*) threadArgs + argSize*i);
         threads[i] = (HANDLE) _beginthreadex(NULL, 0, thread_fun, args, 0, NULL);
@@ -565,8 +566,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
             LARGE_INTEGER t2_trace;
             QueryPerformanceCounter(&t2_trace);
 
-            int32 work_done = 0;
-            for (int i = 0; i < G_numThreads; i++) {
+            uint32 work_done = 0;
+            for (uint32 i = 0; i < G_numThreads; i++) {
                 work_done += G_workDoneCounter[i];
             }
             float secondsElapsed = float(t2_trace.QuadPart - t1_trace.QuadPart) / freq.QuadPart;
@@ -592,12 +593,12 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     // wait for threads to finish, but terminate forcefully if too slow
     DWORD waitResult = WaitForMultipleObjects(G_numThreads, threads, TRUE, 500);
     if (waitResult == WAIT_TIMEOUT) {
-        for (int32 i = 0; i < G_numThreads; i++)
+        for (uint32 i = 0; i < G_numThreads; i++)
         {
             TerminateThread(threads[i], 1);
         }
     }
-    for (int32 i = 0; i < G_numThreads; i++)
+    for (uint32 i = 0; i < G_numThreads; i++)
     {
         CloseHandle(threads[i]);
     }

@@ -104,6 +104,6 @@ float sphere::pdf_value(const vec3& origin, const vec3& dir, float time) const {
 vec3 sphere::pdf_generate(const vec3& origin, float time, pcg32_random_t *rng) const {
     vec3 dir = center(time) - origin;
     float dist_sq = sdot(dir);
-    onb uvw(dir);
+    onb uvw(normalize(dir));
     return uvw * random_towards_sphere(radius, dist_sq);
 }
