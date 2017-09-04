@@ -32,3 +32,6 @@ ipch/
 *.user
 *.userosscache
 *.sln.docstates
+
+# License doesn't permit redistribution
+iacaMarks.h

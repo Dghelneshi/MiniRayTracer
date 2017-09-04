@@ -32,19 +32,22 @@ union alignas(16) m128 {
     constexpr m128(uint64_t a, uint64_t b) : u64{ a,b } {}
     constexpr m128(float a, float b, float c, float d) : f32{ a,b,c,d } {}
     constexpr m128(double a, double b) : f64{ a,b } {}
-    constexpr m128(__m128 m) : f128(m) {}
+    constexpr m128(__m128  m) : f128(m) {}
     constexpr m128(__m128d m) : d128(m) {}
     constexpr m128(__m128i m) : i128(m) {}
+
+    inline operator __m128 () const { return f128; }
+    inline operator __m128i() const { return i128; }
+    inline operator __m128d() const { return d128; }
 };
 
 inline float mrt_sqrt(float f) {
-    // MSVC sometimes wastes an extra register when you use either load or set, is somehow dependent on context
-    __m128 m = _mm_load_ss(&f);
+    __m128 m = _mm_set_ss(f);
     return _mm_cvtss_f32(_mm_sqrt_ss(m));
 }
 
 inline float mrt_abs(float f) {
     static constexpr m128 signs { 0x7FFFFFFFu,0x7FFFFFFFu,0x7FFFFFFFu,0x7FFFFFFFu };
     __m128 m = _mm_set_ss(f);
-    return _mm_cvtss_f32(_mm_and_ps(m, signs.f128));
+    return _mm_cvtss_f32(_mm_and_ps(m, signs));
 }

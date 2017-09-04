@@ -5,7 +5,7 @@
 
 #define MRT_GAMMA 2.2f
 
-// NOTE: overall, MSVC likes vbroadcastss instructions instead of vshufps or vpermilps, _mm_set_ps1 mitigates this problem somewhat
+// NOTE: overall, MSVC likes to emit vbroadcastss instructions instead of vshufps or vpermilps, _mm_set_ps1 mitigates this problem somewhat
 
 // indices for swizzling
 enum sw_idx { X, Y, Z, W };
@@ -67,7 +67,7 @@ public:
 
 inline vec3 operator-(const vec3& v) {
     static constexpr m128 signs { 0x80000000u,0x80000000u,0x80000000u,0x80000000u };
-    return _mm_xor_ps(v.m, signs.f128);
+    return _mm_xor_ps(v.m, signs);
 }
 
 inline vec3 operator+(const vec3& v1, const vec3& v2) {

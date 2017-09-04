@@ -352,6 +352,9 @@ LRESULT CALLBACK MainWndProc(HWND hWindow, UINT uMsg, WPARAM wParam, LPARAM lPar
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {
 
+    LARGE_INTEGER freq;
+    QueryPerformanceFrequency(&freq);
+
     // get parent console to print to stdout if needed
     BOOL bConsole = AttachConsole(ATTACH_PARENT_PROCESS);
     if (bConsole)
@@ -370,9 +373,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     ApplyCmdLine();
 
     if (bConsole) FreeConsole();
-
-    LARGE_INTEGER freq;
-    QueryPerformanceFrequency(&freq);
 
     WNDCLASSEX windowClass = { sizeof(windowClass) };
     windowClass.lpfnWndProc = MainWndProc;
