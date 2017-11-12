@@ -1,5 +1,6 @@
 #pragma once
 #include <stdint.h>
+#include <algorithm>
 
 #if _MSC_VER
 #include <intrin.h>
@@ -8,6 +9,8 @@
 #endif
 
 #define M_PI_F 3.14159265358979323846f
+#define RAD(a) ((a) * (M_PI_F / 180.0f))
+#define DEG(r) ((r) * (180.0f / M_PI_F))
 
 union alignas(16) m128 {
     uint8_t  u8[16];
@@ -41,13 +44,21 @@ union alignas(16) m128 {
     inline operator __m128d() const { return d128; }
 };
 
-inline float mrt_sqrt(float f) {
-    __m128 m = _mm_set_ss(f);
-    return _mm_cvtss_f32(_mm_sqrt_ss(m));
-}
+namespace MRT {
 
-inline float mrt_abs(float f) {
-    static constexpr m128 signs { 0x7FFFFFFFu,0x7FFFFFFFu,0x7FFFFFFFu,0x7FFFFFFFu };
-    __m128 m = _mm_set_ss(f);
-    return _mm_cvtss_f32(_mm_and_ps(m, signs));
+    inline float sqrt(float f) {
+        __m128 m = _mm_set_ss(f);
+        return _mm_cvtss_f32(_mm_sqrt_ss(m));
+    }
+
+    inline float abs(float f) {
+        static constexpr m128 signs { 0x7FFFFFFFu,0x7FFFFFFFu,0x7FFFFFFFu,0x7FFFFFFFu };
+        __m128 m = _mm_set_ss(f);
+        return _mm_cvtss_f32(_mm_and_ps(m, signs));
+    }
+
+    template <typename T>
+    inline T clamp(T v, T min, T max) {
+        return std::max<T>(std::min<T>(v, max), min);
+    }
 }

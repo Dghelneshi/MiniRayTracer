@@ -1,93 +1,94 @@
-#define NOMINMAX
-#include <Windows.h>
-#include <process.h>
+#include <limits>
+#include <thread>
 #include <stdio.h>
-#include <io.h> // console I/O, _open_osfhandle
-#include <iostream>
-#include <fcntl.h>
-#include <float.h>
 
 #include "common.h"
+
+#include "platform.h"
+#include "main.h"
+
 #include "pcg.h"
-#include "material.h"
-#include "scene_object.h"
-#include "sphere.h"
-#include "rect.h"
-#include "box.h"
-#include "volumes.h"
+#include "all_scene_objects.h"
 #include "camera.h"
-#include "triangle.h"
 #include "obj_loader.h"
 #include "work_queue.h"
 #include "pdf.h"
-#define STB_IMAGE_IMPLEMENTATION
-#include "stb_image.h"
+#include "scene.h"
+#include "cmdline_parser.h"
 
+using namespace MRT;
 
 /* TODO:
+    - could eliminate arbitrary ray tmin offset by using the isInside property to only intersect with front XOR backfaces
+        - objects inside other objects could be supported by remembering the last intersected object
+    - add support for spectral rendering
+    - create menu to select scenes, change parameters, etc., think about more effects that can be done in post
+    - construct test scene in pbrt as ground truth
+    - HDR / tone mapping: Make const parameter configurable per-scene and at runtime!
+    - check everywhere whether hitting backfaces from inside solid volumes is handled correctly
+    - current Vec4/Vec3 setup can lead to very subtle bugs (e.g. Vec3 + float -> Vec4 add -> w != 0)
+    - add benchmark for iterations over the buffer (stadnard x,y loop, single counter, pointer, pointer in reverse)
+    - combine draw and draw2 into a common interface
+    - complete math library
     - do something to combat the "fireflies"
-    - HDR / tone mapping support
-    - separation of Win32 code to make porting easier
-    - generalize moving object code (move into base class, add origin for all objects, maybe try pointer to struct member to save space on non-moving objects)
+    - allocate obj file triangles and/or BVH nodes into contiguous memory?
+    - press key to pause/continue tracing (even after initial image is done)
+    - iterative trace function?
+    - generalize moving object code (move into base class, add transforms for all objects, can also use this for instancing)
     - consistent naming conventions everywhere
     - better/any documentation
     - clean up function names, eliminate globals
-    - separate into multiple cpp files
     - more error checking & user feedback (e.g. obj file not found)
     - Ctrl+Shift+F: TODO
 */
 
-static uint32 G_windowWidth = 500;
-static uint32 G_windowHeight = 500;
-static uint32 G_bufferWidth = G_windowWidth;
-static uint32 G_bufferHeight = G_windowHeight;
-static uint32 G_samplesPerPixel = 32; // TODO: will be reduced to the next smallest square number until I implement a more robust sample distribution
-static uint32 G_maxBounces = 32;
-static uint32 G_numThreads = 1; // 0 == automatic
-static uint32 G_packetSize = 32;
-static uint32 G_threadingMode = 0;
-static bool G_isRunning = true;
-static bool G_delay = false; // delayed start for recording
-static volatile uint32 *G_workDoneCounter;
-static uint32* G_backBuffer;
-static vec3 *G_linearBackBuffer;
+static MRT_Params p;
 
-#include "scenes.h"
-static uint32 G_sceneSelect = SCENE_TRIANGLES;
+static volatile bool G_isRunning = true;
+static std::atomic<size_t> G_rayCounter;
+
+static uint32* G_backBuffer; // ARGB in register, BGRA in memory
+static Vec3 *G_linearBackBuffer;
 
 ////////////////////////////
 //       RAY TRACER       //
 ////////////////////////////
 
-vec3 trace(const ray& r, const scene_object& scene, scene_object *biased_obj, pcg32_random_t *rng, uint32 depth) {
+Vec3 trace(const ray& r, const scene_object& scene, scene_object *biased_obj, uint32 depth) {
+
+    G_rayCounter.fetch_add(1, std::memory_order_relaxed);
 
     hit_record hrec;
-    if (scene.hit(r, 0.001f, FLT_MAX, &hrec)) {
+    if (scene.hit(r, 0.001f, std::numeric_limits<float>::max(), &hrec)) {
+        
+        thread_local pdf_space pdf_storage;
+        thread_local pdf * const pdf_p = (pdf*) &pdf_storage;
         scatter_record srec;
-        vec3 emitted = hrec.mat_ptr->sampleEmissive(r, hrec);
 
-        if ((depth < G_maxBounces) && hrec.mat_ptr->scatter(r, hrec, &srec, rng)) {
+        Vec3 emitted = hrec.mat_ptr->sampleEmissive(r, hrec);
+
+        if ((depth < p.maxBounces) && hrec.mat_ptr->scatter(r, hrec, &srec, pdf_p)) {
 
             if (srec.is_specular) {
-                return srec.attenuation * trace(srec.specular_ray, scene, biased_obj, rng, depth + 1);
+                return srec.attenuation * trace(srec.specular_ray, scene, biased_obj, depth + 1);
             }
             else {
                 ray scattered;
                 float pdf_v;
                 if (biased_obj) {
                     object_pdf plight(hrec.p, biased_obj);
-                    mix_pdf p(&plight, srec.pdf);
-                    scattered = ray(hrec.p, p.generate(r.time, rng), r.time);
+                    mix_pdf p(&plight, pdf_p);
+                    scattered = ray(hrec.p, p.generate(r.time), r.time);
                     pdf_v = p.value(scattered.dir, r.time);
                 }
                 else {
-                    scattered = ray(hrec.p, srec.pdf->generate(r.time, rng), r.time);
-                    pdf_v = srec.pdf->value(scattered.dir, r.time);
+                    scattered = ray(hrec.p, pdf_p->generate(r.time), r.time);
+                    pdf_v = pdf_p->value(scattered.dir, r.time);
                 }
-                //delete srec.pdf; // NOTE: currently using placement new into a buffer inside scatter_record
+                //delete srec.pdf; // NOTE: currently reusing thread local storage as we don't need more than one PDF per thread at a time
 
                 float scatter_pdf = hrec.mat_ptr->scattering_pdf(r, hrec, scattered);
-                vec3 scatter_color = trace(scattered, scene, biased_obj, rng, depth + 1);
+                Vec3 scatter_color = trace(scattered, scene, biased_obj, depth + 1);
 
                 return emitted + srec.attenuation * scatter_pdf * scatter_color / pdf_v;
             }
@@ -97,17 +98,17 @@ vec3 trace(const ray& r, const scene_object& scene, scene_object *biased_obj, pc
         }
     }
     else {
-        if (G_sceneSelect >= SCENE_CORNELL_BOX)
-            return vec3(0.0f);
+        if (p.sceneSelect >= SCENE_CORNELL_BOX)
+            return Vec3(0.0f);
         else {
             // background (sky)
             float t = 0.5f * (r.dir.y + 1.0f);
-            return (1.0f - t) * vec3(1.0f) + t * vec3(0.5f, 0.7f, 1.0f);
+            return Vec3(1.0f - t) + t * Vec3(0.5f, 0.7f, 1.0f);
         }
     }
 }
 
-// TODO: class, or just put it somewhere else?
+// TODO: delete once we have sobol sequence
 struct vec2 {
     float x;
     float y;
@@ -127,332 +128,187 @@ struct drawArgs {
 // main worker thread function
 unsigned int __stdcall draw(void * argp) {
 
-    SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL); // ensure main thread gets enough CPU time
+    MRT_LowerThreadPriority(); // ensure main thread gets enough CPU time
 
     drawArgs args = *(drawArgs*) argp;
+    Init_Thread_RNG(args.initstate, args.initseq);
 
-    pcg32_random_t rng = {};
-    pcg32_srandom_r(&rng, args.initstate, args.initseq);
-
-    while (work *work = args.queue->getWork()) // fetch new work from the queue
+    while (tile *t = args.queue->getWork(nullptr)) // fetch new work from the queue
     {
-        for (uint32 y = work->yMin; y < work->yMax; y++) {
-            for (uint32 x = work->xMin; x < work->xMax; x++) {
+        for (uint32 y = t->yMin; y < t->yMax; y++) {
+            for (uint32 x = t->xMin; x < t->xMax; x++) {
 
-                vec3 color(0, 0, 0);
+                Vec3 color(0, 0, 0);
 
                 // multiple samples per pixel
                 for (uint32 i = 0; i < args.numSamples; i++)
                 {
-                    float u = (x + args.sample_dist[i].x) / (float) G_bufferWidth;
-                    float v = (y + args.sample_dist[i].y) / (float) G_bufferHeight;
+                    float u = (x + args.sample_dist[i].x) / (float) p.bufferWidth;
+                    float v = (y + args.sample_dist[i].y) / (float) p.bufferHeight;
 
-                    ray r = args.scene.camera->get_ray(u, v, &rng);
+                    ray r = args.scene.camera->get_ray(u, v);
 
-                    color += trace(r, *args.scene.objects, args.scene.biased_objects, &rng, 0);
+                    Vec3 sample = trace(r, *args.scene.objects, args.scene.biased_objects, 0);
+
+                    if (!std::isfinite(sample.r) || !std::isfinite(sample.g) || !std::isfinite(sample.b)) {
+                        sample = color;
+                    }
+                    color += sample;
                 }
                 color /= float(args.numSamples);
 
-                color = vmin(color, vec3(1.0f));
-                color.gamma_correct();
+                float lum = luminance(color);
+                if (lum > p.maxLuminance) {
+                    color = color * (p.maxLuminance / lum);
+                }
 
-                uint32 red   = (uint32) (255.99f * color.r);
-                uint32 green = (uint32) (255.99f * color.g);
-                uint32 blue  = (uint32) (255.99f * color.b);
-
-                G_backBuffer[x + y * G_bufferWidth] = (red << 16) | (green << 8) | blue;
+                G_linearBackBuffer[x + y * p.bufferWidth] = color;
+                //G_backBuffer[x + y * p.bufferWidth] = ARGB32(color.gamma_correct());
             }
 
             // periodically check if we want to exit prematurely
             if (!G_isRunning) {
-                _endthreadex(0);
+                goto endthread;
             }
         }
-        G_workDoneCounter[args.threadId]++;
     }
 
+endthread:
     return 0;
 }
 
 // --- different multi-threading implementation ---
 
-// worker thread arguments
-struct draw2Args {
-    uint64 initstate;
-    uint64 initseq;
-    work_queue_multi* queue;
-    scene scene;
-    vec2 *sample_dist; // array of sample offsets
-    uint32 numSamples;
-    int32 threadId;
-};
-
 // main worker thread function
 unsigned int __stdcall draw2(void * argp) {
 
-    SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL); // ensure main thread gets enough CPU time
+    MRT_LowerThreadPriority(); // ensure main thread gets enough CPU time
 
-    draw2Args args = *(draw2Args*) argp;
+    drawArgs args = *(drawArgs*) argp;
+    Init_Thread_RNG(args.initstate, args.initseq);
 
-    pcg32_random_t rng = {};
-    pcg32_srandom_r(&rng, args.initstate, args.initseq);
-    
     uint32 sampleCount = 0;
-    while (work *work = args.queue->getWork(args.threadId, &sampleCount)) // fetch new work from the queue
+    while (tile *t = args.queue->getWork(&sampleCount)) // fetch new work from the queue
     {
-        for (uint32 y = work->yMin; y < work->yMax; y++) {
-            for (uint32 x = work->xMin; x < work->xMax; x++) {
+        for (uint32 y = t->yMin; y < t->yMax; y++) {
+            for (uint32 x = t->xMin; x < t->xMax; x++) {
 
-                float u = (x + args.sample_dist[sampleCount].x) / (float) G_bufferWidth;
-                float v = (y + args.sample_dist[sampleCount].y) / (float) G_bufferHeight;
+                float u = (x + args.sample_dist[sampleCount].x) / (float) p.bufferWidth;
+                float v = (y + args.sample_dist[sampleCount].y) / (float) p.bufferHeight;
 
-                ray r = args.scene.camera->get_ray(u, v, &rng);
+                ray r = args.scene.camera->get_ray(u, v);
 
-                vec3 color = trace(r, *args.scene.objects, args.scene.biased_objects, &rng, 0);
+                Vec3 color = trace(r, *args.scene.objects, args.scene.biased_objects, 0);
 
                 if (!std::isfinite(color.r) || !std::isfinite(color.g) || !std::isfinite(color.b)) {
                     if (sampleCount > 0)
-                        color = G_linearBackBuffer[x + y * G_bufferWidth];
+                        color = G_linearBackBuffer[x + y * p.bufferWidth];
                     else
-                        color = vec3(0.0f);
+                        color = Vec3(0.0f);
                 }
-              
+
                 if (sampleCount > 0) {
-                    vec3 old_color = G_linearBackBuffer[x + y * G_bufferWidth];
-                    color = old_color + (color - old_color) * 1.0f / (sampleCount + 1.0f); // iterative average
+                    Vec3 old_color = G_linearBackBuffer[x + y * p.bufferWidth];
+                    color = old_color + (color - old_color) * (1.0f / (sampleCount + 1.0f)); // iterative average
                 }
 
-                G_linearBackBuffer[x + y * G_bufferWidth] = color;
-
-                color = vmin(color, vec3(1.0f));
-                color.gamma_correct();
-
-                uint32 red   = (uint32) (255.99f * color.r);
-                uint32 green = (uint32) (255.99f * color.g);
-                uint32 blue  = (uint32) (255.99f * color.b);
-
-                G_backBuffer[x + y * G_bufferWidth] = (red << 16) | (green << 8) | blue;
+                float lum = luminance(color);
+                if (lum > p.maxLuminance) {
+                    color = color * (p.maxLuminance / lum);
+                }
+                
+                G_linearBackBuffer[x + y * p.bufferWidth] = color;
+                //G_backBuffer[x + y * p.bufferWidth] = ARGB32(color.gamma_correct());
             }
             // periodically check if we want to exit prematurely
             if (!G_isRunning) {
-                _endthreadex(0);
+                goto endthread;
             }
         }
-        G_workDoneCounter[args.threadId]++;
     }
-    if (sampleCount != (args.numSamples - 1)) DebugBreak();
 
+endthread:
     return 0;
 }
 
 
-/////////////////////////
-// COMMAND LINE PARSER //
-/////////////////////////
+////////////////////////////
+//          INPUT         //
+////////////////////////////
 
-#define MAX_NUM_ARGVS 64
+static KeyState lButtonState = MRT_NONE;
+static KeyState rButtonState = MRT_NONE;
+//static KeyState ctrlState    = MRT_NONE;
+//static KeyState shiftState   = MRT_NONE;
+//static KeyState altState     = MRT_NONE;
 
-static int G_argc = 1;
-static char *G_argv[MAX_NUM_ARGVS] = { 0 };
-
-int CheckParm(const char *parm) {
-
-    for (int i = 1; i < G_argc; i++) {
-        if (strcmp(parm, G_argv[i]) == 0) {
-            return i;
-        }
-    }
-    return 0;
+void MRT::MouseCallback(int32 x, int32 y, KeyState lButton, KeyState rButton) {
+    if (lButton != MRT_NONE) lButtonState = lButton;
+    if (rButton != MRT_NONE) rButtonState = rButton;
 }
 
-void ParseCmdLine(char* lpCmdLine) {
-    while (*lpCmdLine && (G_argc < MAX_NUM_ARGVS)) {
-
-        while (*lpCmdLine && ((*lpCmdLine <= 32) || (*lpCmdLine > 126))) {
-            lpCmdLine++;
-        }
-
-        if (*lpCmdLine) {
-            G_argv[G_argc] = lpCmdLine;
-            G_argc++;
-
-            while (*lpCmdLine && ((*lpCmdLine > 32) && (*lpCmdLine <= 126))) {
-                lpCmdLine++;
-            }
-
-            if (*lpCmdLine) {
-                *lpCmdLine = 0;
-                lpCmdLine++;
-            }
-        }
+void MRT::KeyboardCallback(int keycode, KeyState state, KeyState prev) {
+    if (state == MRT_DOWN && prev == MRT_UP)
+        p.delay = false;
+    switch (keycode) {
+    case 'a':
+        break; // TODO
     }
 }
 
-bool ApplyUInt32Parameter(const char* string, uint32 *target, uint32 min = 1, uint32 max = UINT32_MAX) {
-    int index = CheckParm(string);
-    if ((index > 0) && (G_argc > (index + 1))) {
-        uint32 value = atoi(G_argv[index + 1]);
-        if ((value >= min) && (value <= max)) {
-            *target = value;
-            return true;
-        }
-    }
-    return false;
-}
-
-void ApplyCmdLine() {
-
-    if (ApplyUInt32Parameter("-width",  &G_windowWidth))
-        G_bufferWidth = G_windowWidth;
-    if (ApplyUInt32Parameter("-height", &G_windowHeight))
-        G_bufferHeight = G_windowHeight;
-    ApplyUInt32Parameter("-samples",    &G_samplesPerPixel);
-    ApplyUInt32Parameter("-packetsize", &G_packetSize);
-    ApplyUInt32Parameter("-threads",    &G_numThreads, 0);
-    ApplyUInt32Parameter("-depth",      &G_maxBounces);
-    ApplyUInt32Parameter("-scene",      &G_sceneSelect, 0, ENUM_SCENES_MAX - 1);
-    ApplyUInt32Parameter("-mode",       &G_threadingMode, 0, 1);
-
-    int printHelp = CheckParm("-help") || CheckParm("-?");
-    if (printHelp > 0) {
-        printf_s("\nAvailable Parameters:\n\
-                 -width -height\n\
-                 -samples -depth\n\
-                 -threads -packetsize\n\
-                 -mode [0-1]\n\
-                 -scene [0-%i]\n", ENUM_SCENES_MAX - 1);
-        exit(0);
+void MRT::WindowCallback(WindowEvent e) {
+    switch (e) {
+    case MRT_CLOSE:
+        G_isRunning = false;
+        break;
     }
 }
-
 
 ////////////////////////////
 //          MAIN          //
 ////////////////////////////
 
-LRESULT CALLBACK MainWndProc(HWND hWindow, UINT uMsg, WPARAM wParam, LPARAM lParam) {
+int main(int argc, char* argv[]) {
+    
+    MRT_PlatformInit();
 
-    LRESULT result = 0;
+    ParseArgv(argc, argv, &p);
 
-    switch (uMsg) {
-    case WM_LBUTTONUP:
-        G_delay = false;
-        break;
-    case WM_DESTROY:
-    case WM_CLOSE: {
-        G_isRunning = false; // will exit the program soon(tm)!
-    } break;
+    MRT_CreateWindow(p.windowWidth, p.windowHeight, p.bufferWidth, p.bufferHeight);
 
-    default:
-        result = DefWindowProc(hWindow, uMsg, wParam, lParam);
-    }
+    G_backBuffer = (uint32*) calloc(p.bufferWidth * p.bufferHeight, sizeof(*G_backBuffer));
+    MRT_DrawToWindow(G_backBuffer);
 
-    return result;
-}
-
-int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {
-
-    LARGE_INTEGER freq;
-    QueryPerformanceFrequency(&freq);
-
-    // get parent console to print to stdout if needed
-    BOOL bConsole = AttachConsole(ATTACH_PARENT_PROCESS);
-    if (bConsole)
-    {
-        HANDLE hStdOut = GetStdHandle(STD_OUTPUT_HANDLE);
-        int fd = _open_osfhandle((intptr_t) hStdOut, _O_TEXT);
-        if (fd > 0)
-        {
-            *stdout = *_fdopen(fd, "w");
-            setvbuf(stdout, NULL, _IONBF, 0);
-        }
-        std::ios::sync_with_stdio();
-    }
-
-    ParseCmdLine(lpCmdLine);
-    ApplyCmdLine();
-
-    if (bConsole) FreeConsole();
-
-    WNDCLASSEX windowClass = { sizeof(windowClass) };
-    windowClass.lpfnWndProc = MainWndProc;
-    windowClass.hInstance = hInstance;
-    windowClass.lpszClassName = "MiniRayTracerMain";
-
-    if (!RegisterClassEx(&windowClass)) {
-        DebugBreak();
-        exit(EXIT_FAILURE);
-    }
-
-    DWORD windowStyle = WS_SYSMENU | WS_MINIMIZEBOX | WS_VISIBLE;
-    DWORD windowStyleEx = 0;
-
-    // adjust window so that drawable area is exactly the size we want
-    RECT r = { 0, 0, LONG(G_windowWidth), LONG(G_windowHeight) };
-    AdjustWindowRectEx(&r, windowStyle, FALSE, windowStyleEx);
-
-    if ((r.right - r.left) == LONG(G_windowWidth)) { // AdjustWindowRect doesn't seem to work for some window styles
-        int32 x_adjust = GetSystemMetrics(SM_CXFIXEDFRAME) * 2;
-        int32 y_adjust = GetSystemMetrics(SM_CYCAPTION) + GetSystemMetrics(SM_CYFIXEDFRAME) * 2;
-        r.right += x_adjust;
-        r.bottom += y_adjust;
-    }
-
-    HWND mainWindow = CreateWindowEx(windowStyleEx, windowClass.lpszClassName, "MiniRayTracer", windowStyle, 5, 35,
-                                     (r.right - r.left), (r.bottom - r.top), NULL, NULL, hInstance, 0);
-
-    // set stretch mode in case buffer size != window size
-    HDC DC = GetDC(mainWindow);      // stretch mode is reset if we release the DC, so we just don't...
-    //SetStretchBltMode(DC, HALFTONE); // bicubic-like, blurry. comment out if undesired
-    //SetBrushOrgEx(DC, 0, 0, NULL);   // required after setting HALFTONE according to MSDN
-
-    // tells Windows how to interpret our backbuffer
-    BITMAPINFO bmpInfo;
-    bmpInfo.bmiHeader.biSize = sizeof(bmpInfo.bmiHeader);
-    bmpInfo.bmiHeader.biWidth = G_bufferWidth;
-    bmpInfo.bmiHeader.biHeight = G_bufferHeight; // y axis up
-    bmpInfo.bmiHeader.biPlanes = 1;
-    bmpInfo.bmiHeader.biBitCount = 32;
-    bmpInfo.bmiHeader.biCompression = BI_RGB;
-
-    G_backBuffer = (uint32*) calloc(G_bufferWidth * G_bufferHeight, 4);
-
-    if (G_threadingMode == 1) {
-        G_linearBackBuffer = (vec3*) calloc(G_bufferWidth * G_bufferHeight, sizeof(*G_linearBackBuffer));
-    }
+    G_linearBackBuffer = (Vec3*) calloc(p.bufferWidth * p.bufferHeight, sizeof(*G_linearBackBuffer));
 
     /////////////////////////
     // --- Setup Scene --- //
     /////////////////////////
 
-    SetWindowTextA(mainWindow, "MiniRayTracer - Generating Scene...");
+    Init_Thread_RNG(11350390909718046443uLL, 6305599193148252115uLL);
+
+    MRT_SetWindowTitle("MiniRayTracer - Generating Scene...");
 
     // start timer for scene generation
-    LARGE_INTEGER t1_gen;
-    QueryPerformanceCounter(&t1_gen);
+    uint64 t1_gen = MRT_GetTime();
 
-    scene scene = select_scene((scenes) G_sceneSelect);
+    scene scene = select_scene((scenes) p.sceneSelect, float(p.bufferWidth) / float(p.bufferHeight));
 
     // stop timer, display in window title
-    LARGE_INTEGER t2_gen;
-    QueryPerformanceCounter(&t2_gen);
-
     char windowTitle[64];
-    sprintf_s(windowTitle, 64, "MiniRayTracer - Scene: %.0fms", 1000.f * float(t2_gen.QuadPart - t1_gen.QuadPart) / freq.QuadPart);
-    SetWindowTextA(mainWindow, windowTitle);
+    snprintf(windowTitle, sizeof(windowTitle), "MiniRayTracer - Scene: %.0fms", 1000.f * MRT_TimeDelta(t1_gen, MRT_GetTime()));
+    MRT_SetWindowTitle(windowTitle);
 
     // setup sample distribution
     // TODO: distribution for non-square numbers
     //       unbiased distribution that converges earlier: Sobol sequence or others, see http://woo4.me/wootracer/2d-samplers/
-    int32 sqrt_samples = (int32) sqrt((float) G_samplesPerPixel);
-    int32 numSamples = sqrt_samples * sqrt_samples;
+    uint32 sqrt_samples = (uint32) MRT::sqrt((float) p.samplesPerPixel);
+    uint32 numSamples = sqrt_samples * sqrt_samples;
 
     vec2 *sample_dist = (vec2*) calloc(numSamples, sizeof(*sample_dist));
 
-    for (int i = 0; i < sqrt_samples; i++)
-    {
-        for (int j = 0; j < sqrt_samples; j++)
-        {
+    for (uint32 i = 0; i < sqrt_samples; i++) {
+        for (uint32 j = 0; j < sqrt_samples; j++) {
             // sample distribution is a regular grid
             float u_adjust = (i + 0.5f) / (float) sqrt_samples;
             float v_adjust = (j + 0.5f) / (float) sqrt_samples;
@@ -465,143 +321,162 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     // --- Multi-Threading --- //
     /////////////////////////////
 
-    if (G_numThreads == 0) {
+    if (p.numThreads == 0) {
         // ALL YOUR PROCESSOR ARE BELONG TO US!
-        SYSTEM_INFO sysInfo;
-        GetSystemInfo(&sysInfo);
-        G_numThreads = sysInfo.dwNumberOfProcessors;
-        if (G_numThreads < 1) // just in case...
-            G_numThreads = 1;
+        p.numThreads = std::thread::hardware_concurrency();
+    }
+    
+    typedef unsigned int(__stdcall *thread_fn)(void*);
+    thread_fn thread_fun;
+    work_queue *queue;
+
+    if (p.threadingMode == 0) {
+        thread_fun = draw;
+        queue = new work_queue_seq(p.bufferWidth, p.bufferHeight, p.tileSize, p.numThreads);
+    }
+    else if (p.threadingMode == 1) {
+        thread_fun = draw2;
+        queue = new work_queue_dynamic(p.bufferWidth, p.bufferHeight, p.tileSize, p.numThreads, numSamples);
     }
 
     // setup function arguments for the worker threads
-
-    typedef unsigned int(_stdcall *thread_fn)(void*);
-    thread_fn thread_fun;
-    void *threadArgs;
-    size_t argSize;
-
-    uint32 totalWork = 0;
-    G_workDoneCounter = (uint32*) calloc(G_numThreads, sizeof(uint32));
-
-    if (G_threadingMode == 0) {
-        thread_fun = draw;
-        work_queue *queue = new work_queue(G_bufferWidth, G_bufferHeight, G_packetSize, &totalWork);
-
-        drawArgs *threadArgs_ = (drawArgs*) calloc(G_numThreads, sizeof(drawArgs));
-        for (uint32 i = 0; i < G_numThreads; i++)
-        {
-            // thread arguments are all the same for now
-            threadArgs_[i].initstate = (uint64(rand32()) << 32) | rand32();
-            threadArgs_[i].initseq = (uint64(rand32()) << 32) | rand32();
-            threadArgs_[i].queue = queue;
-            threadArgs_[i].scene = scene;
-            threadArgs_[i].sample_dist = sample_dist;
-            threadArgs_[i].numSamples = numSamples;
-            threadArgs_[i].threadId = i;
-        }
-        threadArgs = (void*) threadArgs_;
-        argSize = sizeof(drawArgs);
+    drawArgs *threadArgs = (drawArgs*) calloc(p.numThreads, sizeof(drawArgs));
+    for (uint32 i = 0; i < p.numThreads; i++) {
+        threadArgs[i].initstate = (uint64(rand32()) << 32) | rand32();
+        threadArgs[i].initseq   = (uint64(rand32()) << 32) | rand32();
+        threadArgs[i].queue = queue;
+        threadArgs[i].scene = scene;
+        threadArgs[i].sample_dist = sample_dist;
+        threadArgs[i].numSamples = numSamples;
+        threadArgs[i].threadId = i;
     }
-    else {
-        thread_fun = draw2;
-        work_queue_multi *queue = new work_queue_multi(G_bufferWidth, G_bufferHeight, G_packetSize, G_numThreads, numSamples, &totalWork);
-
-        draw2Args *threadArgs_ = (draw2Args*) calloc(G_numThreads, sizeof(draw2Args));
-        for (uint32 i = 0; i < G_numThreads; i++)
-        {
-            // thread arguments are all the same for now
-            threadArgs_[i].initstate = (uint64(rand32()) << 32) | rand32();
-            threadArgs_[i].initseq = (uint64(rand32()) << 32) | rand32();
-            threadArgs_[i].queue = queue;
-            threadArgs_[i].scene = scene;
-            threadArgs_[i].sample_dist = sample_dist;
-            threadArgs_[i].numSamples = numSamples;
-            threadArgs_[i].threadId = i;
-        }
-        threadArgs = (void*) threadArgs_;
-        argSize = sizeof(draw2Args);
-    }
-
 
     // delayed start for recording
-    PatBlt(DC, 0, 0, G_windowWidth, G_windowHeight, BLACKNESS);
-
-    while (G_delay && G_isRunning) {
-        MSG msg;
-        while (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE)) {
-            TranslateMessage(&msg);
-            DispatchMessage(&msg);
-        }
-        Sleep(33);
+    while (p.delay && G_isRunning) {
+        MRT_HandleMessages();
+        MRT_Sleep(33);
     }
 
     // start time for ray tracer
-    LARGE_INTEGER t1_trace;
-    QueryPerformanceCounter(&t1_trace);
+    uint64 t1_trace = MRT_GetTime();
 
     // start worker threads
-    HANDLE *threads = (HANDLE*) calloc(G_numThreads, sizeof(*threads));
-    for (uint32 i = 0; i < G_numThreads; i++)
-    {
-        void* args = (void*) ((uint8*) threadArgs + argSize*i);
-        threads[i] = (HANDLE) _beginthreadex(NULL, 0, thread_fun, args, 0, NULL);
+    std::thread *threads = new std::thread[p.numThreads];
+    for (size_t i = 0; i < p.numThreads; i++) {
+        void* args = &threadArgs[i];
+        threads[i] = std::thread(thread_fun, args);
     }
 
-    static int32 updateFreq = 60;
-    bool updateWindowTitle = true;
-    // main loop, draws current picture in window
+    static uint32 updateFreq = 30;
+    bool isTracing = true;
+    
     while (G_isRunning) {
 
-        MSG msg;
-        while (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE)) {
-            TranslateMessage(&msg);
-            DispatchMessage(&msg);
-        }
+        MRT_HandleMessages();
+        MRT_Sleep(1000u / updateFreq);
 
-        Sleep(1000 / updateFreq);
-
-        if (updateWindowTitle) {
+        if (isTracing) {
             // display elapsed time in window title
-            LARGE_INTEGER t2_trace;
-            QueryPerformanceCounter(&t2_trace);
+            float secondsElapsed = MRT_TimeDelta(t1_trace, MRT_GetTime());
+            float pctDone = queue->getPercentDone();
 
-            uint32 work_done = 0;
-            for (uint32 i = 0; i < G_numThreads; i++) {
-                work_done += G_workDoneCounter[i];
-            }
-            float secondsElapsed = float(t2_trace.QuadPart - t1_trace.QuadPart) / freq.QuadPart;
-            float pctDone = (100.0f * work_done) / totalWork;
-            float ETA = secondsElapsed * (100 / pctDone) - secondsElapsed;
+            static char buf[128];
 
-            char frameInfo[128];
-            sprintf_s(frameInfo, 128, "%s - Trace: %.2fs (%.0f%% - ETA %.0fs)", windowTitle, secondsElapsed, pctDone, ETA);
-            SetWindowTextA(mainWindow, frameInfo);
-
-            if (work_done == totalWork) { // ray tracer is done!
-                updateWindowTitle = false;
+            if (pctDone == 100.0f) { // ray tracer is done!
+                isTracing = false;
                 updateFreq = 30;
+
+                size_t rays = G_rayCounter;
+                snprintf(buf, sizeof(buf), "%s - Trace: %.2fs - %.3f Mrays/s | %.3f us/ray\n",
+                         windowTitle, secondsElapsed, ((rays * 0.000001f) / secondsElapsed), (secondsElapsed * 1000000.0f) / rays);
+                MRT_SetWindowTitle(buf);
             }
+            else {
+                float eta = secondsElapsed * (100.0f / pctDone) - secondsElapsed;
+                snprintf(buf, sizeof(buf), "%s - Trace: %.2fs (%.0f%% - ETA %.0fs)", windowTitle, secondsElapsed, pctDone, eta);
+                MRT_SetWindowTitle(buf);
+            }
+
+#if 1
+            {
+                // Adaptive Logarithmic Mapping For Displaying Contrast Scenes
+                // http://resources.mpi-inf.mpg.de/tmo/logmap/logmap.pdf
+
+                float L_dmax = 230.0f; // reference maximum display brightness in cd/m^2
+                float bias = logf(0.7f) / logf(0.5f); // tune the numerator!
+
+                float L_wmax = 0;
+                for (size_t y = 0; y < p.bufferHeight; y++) {
+                    for (size_t x = 0; x < p.bufferWidth; x++) {
+                        float lum = luminance(G_linearBackBuffer[x + y * p.bufferWidth]);
+                        L_wmax = std::max(L_wmax, lum);
+                    }
+                }
+                float invlogmax = 1.0f / log10f(L_wmax + 1.0f);
+                float invmax = 1.0f / L_wmax;
+
+                for (size_t y = 0; y < p.bufferHeight; y++) {
+                    for (size_t x = 0; x < p.bufferWidth; x++) {
+                        Vec3 color = G_linearBackBuffer[x + y * p.bufferWidth];
+                        float lum = luminance(color);
+                        float loglw = logf(lum + 1.0f);
+                        float lum_new = (L_dmax * 0.01f * invlogmax) * (loglw / logf(2 + pow(lum * invmax, bias) * 8));
+                        color = (lum_new * color) / (lum + 0.00001f);
+                        G_backBuffer[x + y * p.bufferWidth] = ARGB32(color);
+                    }
+                }
+            }
+#elif 1
+            {
+                // Photographic Tone Reproduction for Digital Images
+                // http://www.cs.utah.edu/~reinhard/cdrom/tonemap.pdf
+
+                float a = 0.10f; // "key value" (middle gray)
+                float sigma = 0.00001f;
+                float scale = 1.0f / (p.bufferWidth * p.bufferHeight);
+                float logavg = 0;
+                float L_wmax = 0;
+                for (size_t y = 0; y < p.bufferHeight; y++) {
+                    for (size_t x = 0; x < p.bufferWidth; x++) {
+                        float lum = luminance(G_linearBackBuffer[x + y * p.bufferWidth]);
+                        logavg += logf(sigma + lum);
+                        L_wmax = std::max(L_wmax, lum);
+                    }
+                }
+                logavg = exp(scale * logavg); // NOTE: in the paper, 1/N (scale) is in the wrong place, producing inf/nan values
+                float invlogavg = 1.0f / logavg;
+                float invmax = 1.0f / L_wmax;
+
+                for (size_t y = 0; y < p.bufferHeight; y++) {
+                    for (size_t x = 0; x < p.bufferWidth; x++) {
+                        Vec3 color = G_linearBackBuffer[x + y * p.bufferWidth];
+                        float lum = luminance(color);
+                        float lum_new = a * invlogavg * lum;
+                        lum_new = lum_new * (1 + lum_new * (invmax*invmax)) / (1 + lum_new);
+                        color = (lum_new * color) / (lum + sigma);
+                        G_backBuffer[x + y * p.bufferWidth] = ARGB32(color);
+                    }
+                }
+            }
+#else
+            // simple gamma correction
+            for (size_t y = 0; y < p.bufferHeight; y++) {
+                for (size_t x = 0; x < p.bufferWidth; x++) {
+                    G_backBuffer[x + y * p.bufferWidth] = ARGB32(gamma_correct(G_linearBackBuffer[x + y * p.bufferWidth]));
+                }
+            }
+#endif
         }
-        
-        // draw current backbuffer to window
-        StretchDIBits(DC, 0, 0, G_windowWidth, G_windowHeight, 0, 0, G_bufferWidth, G_bufferHeight, G_backBuffer, &bmpInfo, DIB_RGB_COLORS, SRCCOPY);
+
+        MRT_DrawToWindow(G_backBuffer);
     }
 
-    ReleaseDC(mainWindow, DC);
+    // wait for threads to finish
+    for (size_t i = 0; i < p.numThreads; i++) {
+        threads[i].join();
+    }
 
-    // wait for threads to finish, but terminate forcefully if too slow
-    DWORD waitResult = WaitForMultipleObjects(G_numThreads, threads, TRUE, 500);
-    if (waitResult == WAIT_TIMEOUT) {
-        for (uint32 i = 0; i < G_numThreads; i++)
-        {
-            TerminateThread(threads[i], 1);
-        }
-    }
-    for (uint32 i = 0; i < G_numThreads; i++)
-    {
-        CloseHandle(threads[i]);
-    }
+    MRT_PlatformDestroy();
 
     return 0;
 }

@@ -35,3 +35,6 @@ ipch/
 
 # License doesn't permit redistribution
 iacaMarks.h
+
+# large lib file
+Benchmarks/lib/

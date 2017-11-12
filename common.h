@@ -1,7 +1,10 @@
 #pragma once
 
 #include <inttypes.h>
-//#include "iacaMarks.h"
+#include "iacaMarks.h"
+#include "platform.h"
+
+//#define NEW_INTERSECT
 
 typedef int8_t   int8;
 typedef int16_t  int16;

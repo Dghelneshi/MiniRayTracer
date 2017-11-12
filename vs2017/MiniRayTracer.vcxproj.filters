@@ -14,15 +14,34 @@
     <ClInclude Include="..\ray.h" />
     <ClInclude Include="..\rect.h" />
     <ClInclude Include="..\scene_object.h" />
-    <ClInclude Include="..\scenes.h" />
     <ClInclude Include="..\sphere.h" />
     <ClInclude Include="..\texture.h" />
     <ClInclude Include="..\triangle.h" />
     <ClInclude Include="..\vec3.h" />
     <ClInclude Include="..\volumes.h" />
     <ClInclude Include="..\mrt_math.h" />
+    <ClInclude Include="..\mat4.h" />
+    <ClInclude Include="..\scene.h" />
+    <ClInclude Include="..\all_scene_objects.h" />
+    <ClInclude Include="..\platform.h" />
+    <ClInclude Include="..\cmdline_parser.h" />
+    <ClInclude Include="..\main.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\main.cpp" />
+    <ClCompile Include="..\triangle.cpp" />
+    <ClCompile Include="..\volumes.cpp" />
+    <ClCompile Include="..\work_queue.cpp" />
+    <ClCompile Include="..\texture.cpp" />
+    <ClCompile Include="..\sphere.cpp" />
+    <ClCompile Include="..\scene.cpp" />
+    <ClCompile Include="..\scene_object.cpp" />
+    <ClCompile Include="..\rect.cpp" />
+    <ClCompile Include="..\pcg.cpp" />
+    <ClCompile Include="..\obj_loader.cpp" />
+    <ClCompile Include="..\mat4.cpp" />
+    <ClCompile Include="..\platform_win32.cpp" />
+    <ClCompile Include="..\cmdline_parser.cpp" />
+    <ClCompile Include="..\stb_image.cpp" />
   </ItemGroup>
 </Project>
