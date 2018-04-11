@@ -19,6 +19,10 @@
 using namespace MRT;
 
 /* TODO:
+    - most scenes are currently broken due to handling of sky + tone mapping!
+    - proper SIMD implementation via ray bundles
+        - GPU implementation?
+    - fix build with MinGW headers, fix build with GCC
     - could eliminate arbitrary ray tmin offset by using the isInside property to only intersect with front XOR backfaces
         - objects inside other objects could be supported by remembering the last intersected object
     - add support for spectral rendering
@@ -27,11 +31,13 @@ using namespace MRT;
     - HDR / tone mapping: Make const parameter configurable per-scene and at runtime!
     - check everywhere whether hitting backfaces from inside solid volumes is handled correctly
     - current Vec4/Vec3 setup can lead to very subtle bugs (e.g. Vec3 + float -> Vec4 add -> w != 0)
-    - add benchmark for iterations over the buffer (stadnard x,y loop, single counter, pointer, pointer in reverse)
+    - add benchmark for iterations over the buffer (standard x,y loop, single counter, pointer, pointer in reverse)
+    - fix race condition in work queue
     - combine draw and draw2 into a common interface
     - complete math library
+    - try to make a very simple brute force SSS material
     - do something to combat the "fireflies"
-    - allocate obj file triangles and/or BVH nodes into contiguous memory?
+    - allocate obj file triangles and/or BVH nodes into contiguous memory --> SoA index buffers in a Mesh class
     - press key to pause/continue tracing (even after initial image is done)
     - iterative trace function?
     - generalize moving object code (move into base class, add transforms for all objects, can also use this for instancing)

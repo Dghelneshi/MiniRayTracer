@@ -30,7 +30,7 @@ template<> char* Read(char *argv) {
 #define __builtin_constant_p(a) 0
 #endif
 template<>
-constexpr char* std::numeric_limits<char*>::max() {
+constexpr char* std::numeric_limits<char*>::max() noexcept {
     return __builtin_constant_p((char*) UINTPTR_MAX) ? (char*) UINTPTR_MAX : (char*) UINTPTR_MAX;
 }
 
