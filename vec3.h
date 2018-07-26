@@ -56,7 +56,7 @@ struct alignas(16) Vec4 {
 };
 
 inline Vec4 operator-(const Vec4& v) {
-    return _mm_sub_ps(_mm_setzero_ps(), v.m);
+    return _mm_xor_ps(v.m, _mm_set1_ps(-0.0f));
 }
 
 inline Vec4 operator+(const Vec4& v1, const Vec4& v2) {

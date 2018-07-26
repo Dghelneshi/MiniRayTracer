@@ -16,8 +16,10 @@ public:
     // min must be < max in all dimensions
     aabb(const Vec3& min, const Vec3& max) : min(min), max(max) {}
 
+    // FIXME! apparently I broke this in the most recent commit???
+
     bool hit(const ray& r, float tmin, float tmax) const {
-#if 0
+#if 1
         for (size_t axis = 0; axis < 3; axis++) {
 
             float invDir = 1.0f / r.dir[axis];
