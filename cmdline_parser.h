@@ -7,7 +7,7 @@ struct MRT_Params {
     uint32 windowHeight = 500;
     uint32 bufferWidth = windowWidth;
     uint32 bufferHeight = windowHeight;
-    uint32 samplesPerPixel = 256;
+    uint32 samplesPerPixel = 128;
     uint32 tileSize = 32;
     uint32 numThreads = 0; // 0 == automatic
     uint32 maxBounces = 32;
@@ -17,7 +17,8 @@ struct MRT_Params {
     bool   delay = false; // delayed start for recording
 };
 
-void ParseArgv(int argc, char** argv, MRT_Params *p_out);
+void ParseArgv(int argc, char** argv);
+MRT_Params *getParams();
 void PrintCmdLineHelp();
 
 template<typename T> 

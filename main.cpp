@@ -48,8 +48,6 @@ using namespace MRT;
     - Ctrl+Shift+F: TODO
 */
 
-static MRT_Params p;
-
 static volatile bool G_isRunning = true;
 static std::atomic<size_t> G_rayCounter;
 
@@ -63,6 +61,7 @@ static Vec3 *G_linearBackBuffer;
 Vec3 trace(const ray& r, const scene_object& scene, scene_object *biased_obj, uint32 depth) {
 
     G_rayCounter.fetch_add(1, std::memory_order_relaxed);
+    static MRT_Params *p = getParams();
 
     hit_record hrec;
     if (scene.hit(r, 0.001f, std::numeric_limits<float>::max(), &hrec)) {
@@ -73,7 +72,7 @@ Vec3 trace(const ray& r, const scene_object& scene, scene_object *biased_obj, ui
 
         Vec3 emitted = hrec.mat_ptr->sampleEmissive(r, hrec);
 
-        if ((depth < p.maxBounces) && hrec.mat_ptr->scatter(r, hrec, &srec, pdf_p)) {
+        if ((depth < p->maxBounces) && hrec.mat_ptr->scatter(r, hrec, &srec, pdf_p)) {
 
             if (srec.is_specular) {
                 return srec.attenuation * trace(srec.specular_ray, scene, biased_obj, depth + 1);
@@ -104,7 +103,7 @@ Vec3 trace(const ray& r, const scene_object& scene, scene_object *biased_obj, ui
         }
     }
     else {
-        if (p.sceneSelect >= SCENE_CORNELL_BOX)
+        if (p->sceneSelect >= SCENE_CORNELL_BOX)
             return Vec3(0.0f);
         else {
             // background (sky)
@@ -138,6 +137,7 @@ unsigned int __stdcall draw(void * argp) {
 
     drawArgs args = *(drawArgs*) argp;
     Init_Thread_RNG(args.initstate, args.initseq);
+    MRT_Params *p = getParams();
 
     while (tile *t = args.queue->getWork(nullptr)) // fetch new work from the queue
     {
@@ -149,8 +149,8 @@ unsigned int __stdcall draw(void * argp) {
                 // multiple samples per pixel
                 for (uint32 i = 0; i < args.numSamples; i++)
                 {
-                    float u = (x + args.sample_dist[i].x) / (float) p.bufferWidth;
-                    float v = (y + args.sample_dist[i].y) / (float) p.bufferHeight;
+                    float u = (x + args.sample_dist[i].x) / (float) p->bufferWidth;
+                    float v = (y + args.sample_dist[i].y) / (float) p->bufferHeight;
 
                     ray r = args.scene.camera->get_ray(u, v);
 
@@ -164,12 +164,12 @@ unsigned int __stdcall draw(void * argp) {
                 color /= float(args.numSamples);
 
                 float lum = luminance(color);
-                if (lum > p.maxLuminance) {
-                    color = color * (p.maxLuminance / lum);
+                if (lum > p->maxLuminance) {
+                    color = color * (p->maxLuminance / lum);
                 }
 
-                G_linearBackBuffer[x + y * p.bufferWidth] = color;
-                //G_backBuffer[x + y * p.bufferWidth] = ARGB32(color.gamma_correct());
+                G_linearBackBuffer[x + y * p->bufferWidth] = color;
+                //G_backBuffer[x + y * p->bufferWidth] = ARGB32(color.gamma_correct());
             }
 
             // periodically check if we want to exit prematurely
@@ -192,6 +192,7 @@ unsigned int __stdcall draw2(void * argp) {
 
     drawArgs args = *(drawArgs*) argp;
     Init_Thread_RNG(args.initstate, args.initseq);
+    MRT_Params *p = getParams();
 
     uint32 sampleCount = 0;
     while (tile *t = args.queue->getWork(&sampleCount)) // fetch new work from the queue
@@ -199,8 +200,8 @@ unsigned int __stdcall draw2(void * argp) {
         for (uint32 y = t->yMin; y < t->yMax; y++) {
             for (uint32 x = t->xMin; x < t->xMax; x++) {
 
-                float u = (x + args.sample_dist[sampleCount].x) / (float) p.bufferWidth;
-                float v = (y + args.sample_dist[sampleCount].y) / (float) p.bufferHeight;
+                float u = (x + args.sample_dist[sampleCount].x) / (float) p->bufferWidth;
+                float v = (y + args.sample_dist[sampleCount].y) / (float) p->bufferHeight;
 
                 ray r = args.scene.camera->get_ray(u, v);
 
@@ -208,23 +209,23 @@ unsigned int __stdcall draw2(void * argp) {
 
                 if (!std::isfinite(color.r) || !std::isfinite(color.g) || !std::isfinite(color.b)) {
                     if (sampleCount > 0)
-                        color = G_linearBackBuffer[x + y * p.bufferWidth];
+                        color = G_linearBackBuffer[x + y * p->bufferWidth];
                     else
                         color = Vec3(0.0f);
                 }
 
                 if (sampleCount > 0) {
-                    Vec3 old_color = G_linearBackBuffer[x + y * p.bufferWidth];
+                    Vec3 old_color = G_linearBackBuffer[x + y * p->bufferWidth];
                     color = old_color + (color - old_color) * (1.0f / (sampleCount + 1.0f)); // iterative average
                 }
 
                 float lum = luminance(color);
-                if (lum > p.maxLuminance) {
-                    color = color * (p.maxLuminance / lum);
+                if (lum > p->maxLuminance) {
+                    color = color * (p->maxLuminance / lum);
                 }
                 
-                G_linearBackBuffer[x + y * p.bufferWidth] = color;
-                //G_backBuffer[x + y * p.bufferWidth] = ARGB32(color.gamma_correct());
+                G_linearBackBuffer[x + y * p->bufferWidth] = color;
+                //G_backBuffer[x + y * p->bufferWidth] = ARGB32(color.gamma_correct());
             }
             // periodically check if we want to exit prematurely
             if (!G_isRunning) {
@@ -254,8 +255,9 @@ void MRT::MouseCallback(int32 x, int32 y, KeyState lButton, KeyState rButton) {
 }
 
 void MRT::KeyboardCallback(int keycode, KeyState state, KeyState prev) {
+    static MRT_Params *p = getParams();
     if (state == MRT_DOWN && prev == MRT_UP)
-        p.delay = false;
+        p->delay = false;
     switch (keycode) {
     case 'a':
         break; // TODO
@@ -278,14 +280,16 @@ int main(int argc, char* argv[]) {
     
     MRT_PlatformInit();
 
-    ParseArgv(argc, argv, &p);
+    ParseArgv(argc, argv);
 
-    MRT_CreateWindow(p.windowWidth, p.windowHeight, p.bufferWidth, p.bufferHeight);
+    MRT_Params *p = getParams();
 
-    G_backBuffer = (uint32*) calloc(p.bufferWidth * p.bufferHeight, sizeof(*G_backBuffer));
+    MRT_CreateWindow(p->windowWidth, p->windowHeight, p->bufferWidth, p->bufferHeight);
+
+    G_backBuffer = (uint32*) calloc(p->bufferWidth * p->bufferHeight, sizeof(*G_backBuffer));
     MRT_DrawToWindow(G_backBuffer);
 
-    G_linearBackBuffer = (Vec3*) calloc(p.bufferWidth * p.bufferHeight, sizeof(*G_linearBackBuffer));
+    G_linearBackBuffer = (Vec3*) calloc(p->bufferWidth * p->bufferHeight, sizeof(*G_linearBackBuffer));
 
     /////////////////////////
     // --- Setup Scene --- //
@@ -298,7 +302,7 @@ int main(int argc, char* argv[]) {
     // start timer for scene generation
     uint64 t1_gen = MRT_GetTime();
 
-    scene scene = select_scene((scenes) p.sceneSelect, float(p.bufferWidth) / float(p.bufferHeight));
+    scene scene = select_scene((scenes) p->sceneSelect, float(p->bufferWidth) / float(p->bufferHeight));
 
     // stop timer, display in window title
     char windowTitle[64];
@@ -308,7 +312,7 @@ int main(int argc, char* argv[]) {
     // setup sample distribution
     // TODO: distribution for non-square numbers
     //       unbiased distribution that converges earlier: Sobol sequence or others, see http://woo4.me/wootracer/2d-samplers/
-    uint32 sqrt_samples = (uint32) MRT::sqrt((float) p.samplesPerPixel);
+    uint32 sqrt_samples = (uint32) MRT::sqrt((float) p->samplesPerPixel);
     uint32 numSamples = sqrt_samples * sqrt_samples;
 
     vec2 *sample_dist = (vec2*) calloc(numSamples, sizeof(*sample_dist));
@@ -327,27 +331,27 @@ int main(int argc, char* argv[]) {
     // --- Multi-Threading --- //
     /////////////////////////////
 
-    if (p.numThreads == 0) {
+    if (p->numThreads == 0) {
         // ALL YOUR PROCESSOR ARE BELONG TO US!
-        p.numThreads = std::thread::hardware_concurrency();
+        p->numThreads = std::thread::hardware_concurrency();
     }
     
     typedef unsigned int(__stdcall *thread_fn)(void*);
     thread_fn thread_fun;
     work_queue *queue;
 
-    if (p.threadingMode == 0) {
+    if (p->threadingMode == 0) {
         thread_fun = draw;
-        queue = new work_queue_seq(p.bufferWidth, p.bufferHeight, p.tileSize, p.numThreads);
+        queue = new work_queue_seq(p->bufferWidth, p->bufferHeight, p->tileSize, p->numThreads);
     }
-    else if (p.threadingMode == 1) {
+    else if (p->threadingMode == 1) {
         thread_fun = draw2;
-        queue = new work_queue_dynamic(p.bufferWidth, p.bufferHeight, p.tileSize, p.numThreads, numSamples);
+        queue = new work_queue_dynamic(p->bufferWidth, p->bufferHeight, p->tileSize, p->numThreads, numSamples);
     }
 
     // setup function arguments for the worker threads
-    drawArgs *threadArgs = (drawArgs*) calloc(p.numThreads, sizeof(drawArgs));
-    for (uint32 i = 0; i < p.numThreads; i++) {
+    drawArgs *threadArgs = (drawArgs*) calloc(p->numThreads, sizeof(drawArgs));
+    for (uint32 i = 0; i < p->numThreads; i++) {
         threadArgs[i].initstate = (uint64(rand32()) << 32) | rand32();
         threadArgs[i].initseq   = (uint64(rand32()) << 32) | rand32();
         threadArgs[i].queue = queue;
@@ -358,7 +362,7 @@ int main(int argc, char* argv[]) {
     }
 
     // delayed start for recording
-    while (p.delay && G_isRunning) {
+    while (p->delay && G_isRunning) {
         MRT_HandleMessages();
         MRT_Sleep(33);
     }
@@ -367,8 +371,8 @@ int main(int argc, char* argv[]) {
     uint64 t1_trace = MRT_GetTime();
 
     // start worker threads
-    std::thread *threads = new std::thread[p.numThreads];
-    for (size_t i = 0; i < p.numThreads; i++) {
+    std::thread *threads = new std::thread[p->numThreads];
+    for (size_t i = 0; i < p->numThreads; i++) {
         void* args = &threadArgs[i];
         threads[i] = std::thread(thread_fun, args);
     }
@@ -412,23 +416,23 @@ int main(int argc, char* argv[]) {
                 float bias = logf(0.7f) / logf(0.5f); // tune the numerator!
 
                 float L_wmax = 0;
-                for (size_t y = 0; y < p.bufferHeight; y++) {
-                    for (size_t x = 0; x < p.bufferWidth; x++) {
-                        float lum = luminance(G_linearBackBuffer[x + y * p.bufferWidth]);
+                for (size_t y = 0; y < p->bufferHeight; y++) {
+                    for (size_t x = 0; x < p->bufferWidth; x++) {
+                        float lum = luminance(G_linearBackBuffer[x + y * p->bufferWidth]);
                         L_wmax = std::max(L_wmax, lum);
                     }
                 }
                 float invlogmax = 1.0f / log10f(L_wmax + 1.0f);
                 float invmax = 1.0f / L_wmax;
 
-                for (size_t y = 0; y < p.bufferHeight; y++) {
-                    for (size_t x = 0; x < p.bufferWidth; x++) {
-                        Vec3 color = G_linearBackBuffer[x + y * p.bufferWidth];
+                for (size_t y = 0; y < p->bufferHeight; y++) {
+                    for (size_t x = 0; x < p->bufferWidth; x++) {
+                        Vec3 color = G_linearBackBuffer[x + y * p->bufferWidth];
                         float lum = luminance(color);
                         float loglw = logf(lum + 1.0f);
                         float lum_new = (L_dmax * 0.01f * invlogmax) * (loglw / logf(2 + pow(lum * invmax, bias) * 8));
                         color = (lum_new * color) / (lum + 0.00001f);
-                        G_backBuffer[x + y * p.bufferWidth] = ARGB32(color);
+                        G_backBuffer[x + y * p->bufferWidth] = ARGB32(color);
                     }
                 }
             }
@@ -439,12 +443,12 @@ int main(int argc, char* argv[]) {
 
                 float a = 0.10f; // "key value" (middle gray)
                 float sigma = 0.00001f;
-                float scale = 1.0f / (p.bufferWidth * p.bufferHeight);
+                float scale = 1.0f / (p->bufferWidth * p->bufferHeight);
                 float logavg = 0;
                 float L_wmax = 0;
-                for (size_t y = 0; y < p.bufferHeight; y++) {
-                    for (size_t x = 0; x < p.bufferWidth; x++) {
-                        float lum = luminance(G_linearBackBuffer[x + y * p.bufferWidth]);
+                for (size_t y = 0; y < p->bufferHeight; y++) {
+                    for (size_t x = 0; x < p->bufferWidth; x++) {
+                        float lum = luminance(G_linearBackBuffer[x + y * p->bufferWidth]);
                         logavg += logf(sigma + lum);
                         L_wmax = std::max(L_wmax, lum);
                     }
@@ -453,22 +457,22 @@ int main(int argc, char* argv[]) {
                 float invlogavg = 1.0f / logavg;
                 float invmax = 1.0f / L_wmax;
 
-                for (size_t y = 0; y < p.bufferHeight; y++) {
-                    for (size_t x = 0; x < p.bufferWidth; x++) {
-                        Vec3 color = G_linearBackBuffer[x + y * p.bufferWidth];
+                for (size_t y = 0; y < p->bufferHeight; y++) {
+                    for (size_t x = 0; x < p->bufferWidth; x++) {
+                        Vec3 color = G_linearBackBuffer[x + y * p->bufferWidth];
                         float lum = luminance(color);
                         float lum_new = a * invlogavg * lum;
                         lum_new = lum_new * (1 + lum_new * (invmax*invmax)) / (1 + lum_new);
                         color = (lum_new * color) / (lum + sigma);
-                        G_backBuffer[x + y * p.bufferWidth] = ARGB32(color);
+                        G_backBuffer[x + y * p->bufferWidth] = ARGB32(color);
                     }
                 }
             }
 #else
             // simple gamma correction
             for (size_t y = 0; y < p.bufferHeight; y++) {
-                for (size_t x = 0; x < p.bufferWidth; x++) {
-                    G_backBuffer[x + y * p.bufferWidth] = ARGB32(gamma_correct(G_linearBackBuffer[x + y * p.bufferWidth]));
+                for (size_t x = 0; x < p->bufferWidth; x++) {
+                    G_backBuffer[x + y * p->bufferWidth] = ARGB32(gamma_correct(G_linearBackBuffer[x + y * p->bufferWidth]));
                 }
             }
 #endif
@@ -478,7 +482,7 @@ int main(int argc, char* argv[]) {
     }
 
     // wait for threads to finish
-    for (size_t i = 0; i < p.numThreads; i++) {
+    for (size_t i = 0; i < p->numThreads; i++) {
         threads[i].join();
     }
 

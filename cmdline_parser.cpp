@@ -10,6 +10,8 @@
 
 #include "cmdline_parser.h"
 
+static MRT_Params G_params;
+
 // TODO: better error checking
 
 // reads a value from a string argument
@@ -68,7 +70,12 @@ int CheckParameter(int argc, char *argv[], const char *parameter) {
     return 0;
 }
 
-void ParseArgv(int argc, char** argv, MRT_Params *p_out) {
+// TODO: use static singleton class instead?
+MRT_Params *getParams() {
+    return &G_params;
+}
+
+void ParseArgv(int argc, char** argv) {
 
     if (CheckParameter(argc, argv, "-help")  ||
         CheckParameter(argc, argv, "--help") ||
@@ -95,7 +102,7 @@ void ParseArgv(int argc, char** argv, MRT_Params *p_out) {
 
     p.delay = CheckParameter(argc, argv, "-delay");
 
-    *p_out = p;
+    G_params = p;
 }
 
 
