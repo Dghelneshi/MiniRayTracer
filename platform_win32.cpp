@@ -5,6 +5,7 @@
 #define WIN32_LEAN_AND_MEAN
 #include <Windows.h>
 #include <process.h>
+#include <stdio.h>
 
 using namespace MRT;
 
@@ -145,10 +146,15 @@ void MRT_HandleMessages() {
 void MRT_DrawToWindow(const uint32_t* backBuffer) {
     StretchDIBits(DC, 0, 0, G_windowWidth, G_windowHeight, 0, 0, G_bufferWidth, G_bufferHeight, backBuffer, &bmpInfo, DIB_RGB_COLORS, SRCCOPY);
 }
-#include <stdio.h>
-void MRT_DebugPrint(const char *str) {
-    fprintf(stderr, "%s", str);
-    OutputDebugStringA(str);
+
+void MRT_DebugPrint(const char *format, ...) {
+    static char buffer[16384];
+    va_list args;
+    va_start(args, format);
+    vsprintf(buffer, format, args);
+    va_end(args);
+    fputs(buffer, stderr);
+    OutputDebugStringA(buffer);
 }
 
 void MRT_Assert(bool cond) {

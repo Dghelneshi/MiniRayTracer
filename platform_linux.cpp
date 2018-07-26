@@ -85,9 +85,13 @@ void MRT_DrawToWindow(const uint32_t* backBuffer) {
     SDL_RenderPresent(renderer);
 }
 
-void MRT_DebugPrint(const char *str) {
-    printf("%s", str);
+void MRT_DebugPrint(const char *format, ...) {
+    va_list args;
+    va_start(args, format);
+    vprintf(format, args);
+    va_end(args);
 }
+
 
 void MRT_Assert(bool cond) {
     assert(cond);

@@ -8,7 +8,7 @@ void MRT_CreateWindow(uint32_t windowWidth, uint32_t windowHeight, uint32_t buff
 void MRT_SetWindowTitle(const char *str);
 void MRT_DrawToWindow(const uint32_t *backBuffer);
 
-void MRT_DebugPrint(const char *str);
+void MRT_DebugPrint(const char *format, ...);
 void MRT_Assert(bool cond);
 void MRT_Assert(bool cond, const char *msg);
 void MRT_Sleep(uint32_t ms);
