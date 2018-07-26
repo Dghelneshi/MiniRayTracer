@@ -1,6 +1,7 @@
 #pragma once
 
 #include "common.h"
+#include "mrt_math.h"
 #include <atomic>
 #include <algorithm>
 
@@ -18,25 +19,7 @@ public:
     uint32 numThreads;
     std::atomic<uint64> counter;
 
-    work_queue(uint32 bufferWidth, uint32 bufferHeight, uint32 tileSize, uint32 numThreads) : numThreads(numThreads), counter(0) {
-        uint32 xCount = (bufferWidth  + (tileSize - 1u)) / tileSize;
-        uint32 yCount = (bufferHeight + (tileSize - 1u)) / tileSize;
-        numTiles = (xCount * yCount);
-
-        worklist = (tile*) malloc(sizeof(*worklist) * numTiles);
-
-        for (uint32 y = 0; y < yCount; y++) {
-            for (uint32 x = 0; x < xCount; x++) {
-                // last tile in each row and column can be smaller than tileSize
-                uint32 xMin = x * tileSize;
-                uint32 xMax = std::min(xMin + tileSize, bufferWidth);
-                uint32 yMin = y * tileSize;
-                uint32 yMax = std::min(yMin + tileSize, bufferHeight);
-
-                worklist[x + y * xCount] = { xMin, xMax, yMin, yMax };
-            }
-        }
-    }
+    work_queue(uint32 bufferWidth, uint32 bufferHeight, uint32 tileSize, uint32 numThreads);
 
     virtual tile* getWork(uint32* curSample_out) = 0;
     virtual float getPercentDone() = 0;
@@ -57,7 +40,6 @@ public:
 class work_queue_dynamic final : public work_queue {
 public:
     uint32 numSamples;
-
 
     work_queue_dynamic(uint32 bufferWidth, uint32 bufferHeight, uint32 tileSize, uint32 numThreads, uint32 numSamples)
                       : work_queue(bufferWidth, bufferHeight, tileSize, numThreads),

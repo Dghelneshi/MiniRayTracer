@@ -1,5 +1,5 @@
 #pragma once
-#include <stdint.h>
+#include "common.h"
 #include <algorithm>
 
 #if _MSC_VER
@@ -45,6 +45,33 @@ union alignas(16) m128 {
 };
 
 namespace MRT {
+
+    inline uint32_t nextPo2(uint32_t v) {
+        v--;
+        v |= v >> 1;
+        v |= v >> 2;
+        v |= v >> 4;
+        v |= v >> 8;
+        v |= v >> 16;
+        v++;
+        return v;
+    }
+
+    inline uint32 lzcnt(uint32 v) {
+#if _MSC_VER
+        unsigned long i;
+        _BitScanReverse(&i, v);
+        i = 31 - i;
+#else
+#error INSERT LZCNT INTRINSIC HERE
+#endif
+        return i;
+    }
+
+    inline uint32 log2U32(uint32 v) {
+        if (v == 0) return 0;
+        else        return 31 - lzcnt(v);
+    }
 
     inline float sqrt(float f) {
         __m128 m = _mm_set_ss(f);
