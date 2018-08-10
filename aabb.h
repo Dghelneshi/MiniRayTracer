@@ -16,10 +16,8 @@ public:
     // min must be < max in all dimensions
     aabb(const Vec3& min, const Vec3& max) : min(min), max(max) {}
 
-    // FIXME! apparently I broke this in the most recent commit???
-
     bool hit(const ray& r, float tmin, float tmax) const {
-#if 1
+#if 0
         for (size_t axis = 0; axis < 3; axis++) {
 
             float invDir = 1.0f / r.dir[axis];
@@ -38,16 +36,17 @@ public:
                 return false;
         }
         return true;
-#elif 0
+#elif 1
         Vec3 invDir = 1.0f / r.dir;
 
         m128 t0 = ((min - r.origin) * invDir).m;
         m128 t1 = ((max - r.origin) * invDir).m;
 
         // exchange t0[i] and t1[i] if invDir[i] < 0
-        __m128 ltZero = _mm_cmplt_ps(invDir.m, _mm_setzero_ps());
-        t0 = _mm_blendv_ps(t0, t1, ltZero);
-        t1 = _mm_blendv_ps(t1, t0, ltZero);
+        m128 ltZero = _mm_cmplt_ps(invDir.m, _mm_setzero_ps());
+        m128 t0_ = _mm_blendv_ps(t0, t1, ltZero); // temp copy of t0 to preserve original for blend with t1
+             t1  = _mm_blendv_ps(t1, t0, ltZero);
+             t0  = t0_;
 
         // insert tmin and tmax as W component of t0/t1,
         t0 = _mm_insert_ps(t0, _mm_set_ss(tmin), 3 << 4);
@@ -60,9 +59,10 @@ public:
         // do min/max of xy with zw
         m128 tminv = _mm_max_ps(t0, t0zw);
         m128 tmaxv = _mm_min_ps(t1, t1zw);
+
         // do another min/max of the two results from above
-        tminv = _mm_max_ps(tminv, _mm_permute_ps(tminv, _MM_SHUFFLE(0, 0, 0, Y)));
-        tmaxv = _mm_min_ps(tmaxv, _mm_permute_ps(tmaxv, _MM_SHUFFLE(0, 0, 0, Y)));
+        tminv = _mm_max_ss(tminv, _mm_permute_ps(tminv, _MM_SHUFFLE(0, 0, 0, Y)));
+        tmaxv = _mm_min_ss(tmaxv, _mm_permute_ps(tmaxv, _MM_SHUFFLE(0, 0, 0, Y)));
 
         return (tmaxv.f32[0] > tminv.f32[0]);
 #else
@@ -72,9 +72,10 @@ public:
         m128 t1 = ((max - r.origin) * invDir).m;
 
         // exchange t0[i] and t1[i] if invDir[i] < 0
-        __m128 ltZero = _mm_cmplt_ps(invDir.m, _mm_setzero_ps());
-        t0 = _mm_blendv_ps(t0, t1, ltZero);
-        t1 = _mm_blendv_ps(t1, t0, ltZero);
+        m128 ltZero = _mm_cmplt_ps(invDir.m, _mm_setzero_ps());
+        m128 t0_ = _mm_blendv_ps(t0, t1, ltZero); // temp copy of t0 to preserve original for blend with t1
+             t1  = _mm_blendv_ps(t1, t0, ltZero);
+             t0  = t0_;
 
         // shift individual vector elements down
         m128 t0y = _mm_permute_ps(t0, _MM_SHUFFLE(0, 0, 0, Y));
